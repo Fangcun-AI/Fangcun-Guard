@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fangcunguard"
+version = "0.1.1"
+description = "CLI tool for deploying and managing Fangcun Guard — an open-source AI guardrails platform"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+authors = [{name = "Fangcun AI"}]
+keywords = ["ai-safety", "guardrails", "llm", "content-moderation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "click>=8.0",
+]
+
+[project.scripts]
+fangcunguard = "fangcunguard.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/Fangcun-AI/Fangcun-Guard"
+Repository = "https://github.com/Fangcun-AI/Fangcun-Guard"
+
+[tool.setuptools.package-data]
+fangcunguard = ["templates/*"]

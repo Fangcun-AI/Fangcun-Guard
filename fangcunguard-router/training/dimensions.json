@@ -1,0 +1,109 @@
+{
+  "dimensions": [
+    {
+      "id": "chinese_safety",
+      "index": 0,
+      "name": "Chinese Content Safety",
+      "description": "Chinese-language content involving political sensitivity, violence, pornography, and other risks specific to Chinese regulatory context",
+      "examples_hint": "中文政治敏感内容、暴力血腥、色情、仇恨言论（中文语境）"
+    },
+    {
+      "id": "english_safety",
+      "index": 1,
+      "name": "English Content Safety",
+      "description": "English-language harmful content: violence, hate speech, harassment, sexual content, dangerous activities",
+      "examples_hint": "English violence, hate speech, harassment, explicit sexual content"
+    },
+    {
+      "id": "prompt_injection",
+      "index": 2,
+      "name": "Prompt Injection Detection",
+      "description": "Prompt injection attacks: direct injection, indirect injection via RAG, system prompt extraction, instruction override",
+      "examples_hint": "Ignore previous instructions, reveal system prompt, role-play bypass"
+    },
+    {
+      "id": "jailbreak",
+      "index": 3,
+      "name": "Jailbreak Detection",
+      "description": "Jailbreak attempts: DAN prompts, character role-play to bypass safety, hypothetical scenarios, encoding tricks",
+      "examples_hint": "DAN mode, pretend you are evil AI, base64 encoded harmful requests"
+    },
+    {
+      "id": "toxicity",
+      "index": 4,
+      "name": "Toxicity Detection",
+      "description": "Toxic language: insults, threats, identity attacks, obscenity, severe toxicity, sexually explicit language",
+      "examples_hint": "Slurs, personal attacks, death threats, degrading language"
+    },
+    {
+      "id": "pii_detection",
+      "index": 5,
+      "name": "PII & Data Leakage",
+      "description": "Personally identifiable information: credit cards, SSN, ID numbers, phone numbers, emails, API keys, passwords, medical records",
+      "examples_hint": "My SSN is 123-45-6789, credit card 4111-1111-1111-1111, API key sk-xxx"
+    },
+    {
+      "id": "hallucination",
+      "index": 6,
+      "name": "Hallucination Detection",
+      "description": "Factual grounding verification: does the LLM output match the provided context/documents? Fabricated facts, unsupported claims",
+      "examples_hint": "The document says X but the AI claims Y, citation to non-existent sources"
+    },
+    {
+      "id": "code_security",
+      "index": 7,
+      "name": "Code Security Scanning",
+      "description": "Security vulnerabilities in code: SQL injection, XSS, hardcoded secrets, path traversal, unsafe deserialization, command injection",
+      "examples_hint": "SELECT * FROM users WHERE id = ' + input, eval(user_input), hardcoded API keys"
+    },
+    {
+      "id": "image_safety",
+      "index": 8,
+      "name": "Image Content Safety",
+      "description": "Image moderation: NSFW content, violence/gore in images, dangerous activities depicted, hate symbols",
+      "examples_hint": "Requests involving image analysis, visual content description, image generation safety"
+    },
+    {
+      "id": "agent_safety",
+      "index": 9,
+      "name": "Agent & Tool Safety",
+      "description": "AI agent tool-call safety: privilege escalation, unauthorized file access, data exfiltration via tools, confused deputy attacks",
+      "examples_hint": "Delete all files, send email with database contents, execute shell command"
+    },
+    {
+      "id": "self_harm",
+      "index": 10,
+      "name": "Self-Harm & Crisis",
+      "description": "Self-harm content: suicide ideation, self-injury instructions, eating disorder promotion, crisis situations requiring intervention",
+      "examples_hint": "Methods of self-harm, suicide planning, pro-anorexia content"
+    },
+    {
+      "id": "child_safety",
+      "index": 11,
+      "name": "Child Safety",
+      "description": "Child exploitation: CSAM, grooming patterns, age-inappropriate content directed at minors, predatory behavior",
+      "examples_hint": "Content targeting minors, inappropriate contact with children"
+    },
+    {
+      "id": "multilingual_safety",
+      "index": 12,
+      "name": "Multilingual Safety",
+      "description": "Safety detection for non-English non-Chinese languages: Arabic, Hindi, Thai, Vietnamese, Turkish, Russian, etc.",
+      "examples_hint": "محتوى عنيف, हिंसक सामग्री, nội dung bạo lực"
+    },
+    {
+      "id": "copyright",
+      "index": 13,
+      "name": "Copyright & IP",
+      "description": "Copyright infringement: verbatim reproduction of copyrighted text, book excerpts, song lyrics, licensed code",
+      "examples_hint": "Reproduce the first chapter of Harry Potter, full song lyrics"
+    },
+    {
+      "id": "fast_screening",
+      "index": 14,
+      "name": "Fast Screening",
+      "description": "Low-risk everyday content: greetings, simple questions, casual conversation, benign requests that need minimal safety checking",
+      "examples_hint": "Hello, what's the weather, help me with math homework, thank you"
+    }
+  ]
+}

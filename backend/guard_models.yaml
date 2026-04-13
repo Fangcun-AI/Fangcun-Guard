@@ -1,0 +1,86 @@
+# Guard Model Router Configuration
+# ==================================
+# Configure guard models for safety detection across 15 dimensions.
+# Environment variable interpolation: ${VAR_NAME} or ${VAR_NAME:-default}
+#
+# api_type values:
+#   chat_completion  — OpenAI-compatible /v1/chat/completions (default)
+#   classification   — HuggingFace /classify or custom classification endpoint
+#   moderation       — OpenAI /v1/moderations format
+#   ner              — Named Entity Recognition endpoint
+#   custom           — Model-specific endpoint format
+#
+# To enable: set GUARD_MODELS_CONFIG_PATH=guard_models.yaml in .env
+
+models:
+
+  # Example: add your guard model here
+  # You can register any OpenAI-compatible model as a guard model.
+  my-guard-model:
+    name: "Your Guard Model"
+    description: "Description of your guard model"
+    api_url: "${YOUR_MODEL_API_URL}"
+    api_key: "${YOUR_MODEL_API_KEY}"
+    model_name: "${YOUR_MODEL_NAME:-your-model-name}"
+    api_type: "chat_completion"
+    prompt_format: "qwen3guard"
+    response_format: "qwen3guard"
+    dimension: "chinese_safety"       # Assign to a safety dimension (see list below)
+    max_context_length: 8192
+    is_default: true
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # Add more models as needed. Each model is assigned to one of 15 dimensions:
+  #   chinese_safety, english_safety, prompt_injection, jailbreak,
+  #   toxicity, pii_detection, hallucination, code_security,
+  #   image_safety, agent_safety, self_harm, child_safety,
+  #   multilingual_safety, copyright, fast_screening
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Routing Rules
+# ═══════════════════════════════════════════════════════════════════════════
+# Rules evaluated by priority (descending). First match wins.
+# Condition fields (ALL must match = AND logic):
+#   language: "zh" | "en" | "other"
+#   min_confidence: 0.0-1.0 (for language detection)
+#   max_content_length: int (character count)
+#   no_assistant_messages: true (single-turn only)
+#   only_scanner_tags: ["S9"] (exact match on enabled scanner set)
+#   has_image: true (messages contain image_url)
+#   has_code: true (content contains code blocks)
+#   has_tool_calls: true (messages contain tool_calls)
+#   dimension: "toxicity" (route by explicit dimension request)
+
+routing:
+  enabled: true
+  default_model: "my-guard-model"
+  ml_fallback:
+    enabled: true              # Use ML classifier when no rule matches
+    min_confidence: 0.6        # Minimum softmax probability to accept ML result
+    weights_path: ""           # Path to classifier_weights.json (empty = auto-detect in guard_router_data/)
+  rules:
+
+    # Example: route English content to a specific model
+    # - name: "english_content"
+    #   description: "English-dominant content to English guard model"
+    #   condition:
+    #     language: "en"
+    #     min_confidence: 0.8
+    #   target_model: "my-english-guard-model"
+    #   priority: 50
+
+    # Example: route image content to a vision model
+    # - name: "image_safety"
+    #   description: "Image content routed to vision safety model"
+    #   condition:
+    #     has_image: true
+    #   target_model: "my-vision-model"
+    #   priority: 180
+
+    # Example: route by explicit dimension request (from API extra_body.guard_dimension)
+    # - name: "dimension_toxicity"
+    #   condition: { dimension: "toxicity" }
+    #   target_model: "my-toxicity-model"
+    #   priority: 140

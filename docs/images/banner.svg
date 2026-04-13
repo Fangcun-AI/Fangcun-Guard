@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="960" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0f0f23"/>
+      <stop offset="100%" stop-color="#1a1a3e"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c5cfc"/>
+      <stop offset="100%" stop-color="#4e7cff"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c5cfc" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#4e7cff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="line1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4e7cff" stop-opacity="0"/>
+      <stop offset="30%" stop-color="#4e7cff" stop-opacity="0.6"/>
+      <stop offset="70%" stop-color="#7c5cfc" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#7c5cfc" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="320" rx="16" fill="url(#bg)"/>
+
+  <!-- Subtle grid pattern -->
+  <g opacity="0.04" stroke="#ffffff" stroke-width="0.5">
+    <line x1="0" y1="40" x2="960" y2="40"/>
+    <line x1="0" y1="80" x2="960" y2="80"/>
+    <line x1="0" y1="120" x2="960" y2="120"/>
+    <line x1="0" y1="160" x2="960" y2="160"/>
+    <line x1="0" y1="200" x2="960" y2="200"/>
+    <line x1="0" y1="240" x2="960" y2="240"/>
+    <line x1="0" y1="280" x2="960" y2="280"/>
+    <line x1="120" y1="0" x2="120" y2="320"/>
+    <line x1="240" y1="0" x2="240" y2="320"/>
+    <line x1="360" y1="0" x2="360" y2="320"/>
+    <line x1="480" y1="0" x2="480" y2="320"/>
+    <line x1="600" y1="0" x2="600" y2="320"/>
+    <line x1="720" y1="0" x2="720" y2="320"/>
+    <line x1="840" y1="0" x2="840" y2="320"/>
+  </g>
+
+  <!-- Glow behind shield -->
+  <circle cx="200" cy="160" r="120" fill="url(#glow)"/>
+
+  <!-- Shield icon -->
+  <g transform="translate(145, 85)">
+    <!-- Shield body -->
+    <path d="M55 10 L100 30 L100 75 C100 110 78 138 55 150 C32 138 10 110 10 75 L10 30 Z"
+          fill="url(#shield)" opacity="0.9"/>
+    <!-- Shield highlight -->
+    <path d="M55 10 L100 30 L100 75 C100 110 78 138 55 150"
+          fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.3"/>
+    <!-- Inner shield outline -->
+    <path d="M55 25 L88 40 L88 73 C88 100 72 122 55 132 C38 122 22 100 22 73 L22 40 Z"
+          fill="none" stroke="#ffffff" stroke-width="1" opacity="0.2"/>
+
+    <!-- AI circuit pattern inside shield -->
+    <!-- Central node -->
+    <circle cx="55" cy="70" r="6" fill="#ffffff" opacity="0.9"/>
+    <!-- Top node -->
+    <circle cx="55" cy="42" r="3.5" fill="#ffffff" opacity="0.7"/>
+    <line x1="55" y1="46" x2="55" y2="64" stroke="#ffffff" stroke-width="1.5" opacity="0.5"/>
+    <!-- Left node -->
+    <circle cx="35" cy="85" r="3.5" fill="#ffffff" opacity="0.7"/>
+    <line x1="38" y1="83" x2="50" y2="73" stroke="#ffffff" stroke-width="1.5" opacity="0.5"/>
+    <!-- Right node -->
+    <circle cx="75" cy="85" r="3.5" fill="#ffffff" opacity="0.7"/>
+    <line x1="72" y1="83" x2="60" y2="73" stroke="#ffffff" stroke-width="1.5" opacity="0.5"/>
+    <!-- Bottom node -->
+    <circle cx="55" cy="108" r="3.5" fill="#ffffff" opacity="0.7"/>
+    <line x1="55" y1="76" x2="55" y2="104" stroke="#ffffff" stroke-width="1.5" opacity="0.5"/>
+    <!-- Diagonal connections -->
+    <line x1="38" y1="87" x2="52" y2="105" stroke="#ffffff" stroke-width="1" opacity="0.3"/>
+    <line x1="72" y1="87" x2="58" y2="105" stroke="#ffffff" stroke-width="1" opacity="0.3"/>
+  </g>
+
+  <!-- Product name -->
+  <text x="310" y="138" font-family="'Segoe UI', 'SF Pro Display', -apple-system, Arial, sans-serif" font-size="52" font-weight="700" fill="#ffffff" letter-spacing="-1">
+    FangcunGuard
+  </text>
+
+  <!-- Tagline -->
+  <text x="310" y="178" font-family="'Segoe UI', 'SF Pro Display', -apple-system, Arial, sans-serif" font-size="20" fill="#8b8baf" font-weight="400" letter-spacing="0.5">
+    Open-Source AI Guardrails Platform
+  </text>
+
+  <!-- Decorative line -->
+  <rect x="310" y="195" width="380" height="1" fill="url(#line1)"/>
+
+  <!-- Feature pills -->
+  <g font-family="'Segoe UI', 'SF Pro Display', -apple-system, Arial, sans-serif" font-size="13" font-weight="500">
+    <!-- Pill 1 -->
+    <rect x="310" y="212" width="130" height="28" rx="14" fill="#7c5cfc" fill-opacity="0.15" stroke="#7c5cfc" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="375" y="230" fill="#a78bfa" text-anchor="middle">Content Safety</text>
+
+    <!-- Pill 2 -->
+    <rect x="452" y="212" width="150" height="28" rx="14" fill="#4e7cff" fill-opacity="0.15" stroke="#4e7cff" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="527" y="230" fill="#7da2ff" text-anchor="middle">Data Leak Prevention</text>
+
+    <!-- Pill 3 -->
+    <rect x="614" y="212" width="155" height="28" rx="14" fill="#7c5cfc" fill-opacity="0.15" stroke="#7c5cfc" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="691.5" y="230" fill="#a78bfa" text-anchor="middle">Prompt Injection Defense</text>
+
+    <!-- Pill 4 -->
+    <rect x="310" y="250" width="140" height="28" rx="14" fill="#4e7cff" fill-opacity="0.15" stroke="#4e7cff" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="380" y="268" fill="#7da2ff" text-anchor="middle">Agent Tool Safety</text>
+
+    <!-- Pill 5 -->
+    <rect x="462" y="250" width="135" height="28" rx="14" fill="#7c5cfc" fill-opacity="0.15" stroke="#7c5cfc" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="529.5" y="268" fill="#a78bfa" text-anchor="middle">Private Model Routing</text>
+  </g>
+
+  <!-- Small decorative dots -->
+  <circle cx="880" cy="60" r="2" fill="#4e7cff" opacity="0.3"/>
+  <circle cx="900" cy="80" r="1.5" fill="#7c5cfc" opacity="0.2"/>
+  <circle cx="860" cy="90" r="1" fill="#4e7cff" opacity="0.25"/>
+  <circle cx="920" cy="45" r="1.5" fill="#7c5cfc" opacity="0.15"/>
+  <circle cx="70" cy="270" r="1.5" fill="#4e7cff" opacity="0.2"/>
+  <circle cx="50" cy="250" r="1" fill="#7c5cfc" opacity="0.25"/>
+  <circle cx="90" cy="290" r="2" fill="#4e7cff" opacity="0.15"/>
+</svg>

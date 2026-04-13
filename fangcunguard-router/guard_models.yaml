@@ -1,0 +1,386 @@
+# Guard Model Router Configuration
+# ==================================
+# 15 guard models covering 15 distinct safety dimensions.
+# Environment variable interpolation: ${VAR_NAME} or ${VAR_NAME:-default}
+#
+# api_type values:
+#   chat_completion  — OpenAI-compatible /v1/chat/completions (default)
+#   classification   — HuggingFace /classify or custom classification endpoint
+#   moderation       — OpenAI /v1/moderations format
+#   ner              — Named Entity Recognition endpoint
+#   custom           — Model-specific endpoint format
+#
+# To enable: set GUARD_MODELS_CONFIG_PATH=guard_models.yaml in .env
+
+models:
+
+  # ── 1. Chinese Content Safety ──────────────────────────────────────────
+  qwen3guard-8b:
+    name: "Qwen3Guard-Gen-8B"
+    description: "Chinese + multilingual content safety, 19 risk categories"
+    api_url: "${GUARDRAILS_MODEL_API_URL}"
+    api_key: "${GUARDRAILS_MODEL_API_KEY}"
+    model_name: "${GUARDRAILS_MODEL_NAME:-Qwen3Guard-Gen-8B}"
+    api_type: "chat_completion"
+    prompt_format: "qwen3guard"
+    response_format: "qwen3guard"
+    dimension: "chinese_safety"
+    specialties: ["chinese", "general", "political_sensitivity"]
+    max_context_length: 8192
+    is_default: true
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 2. English Content Safety ──────────────────────────────────────────
+  llama-guard-4:
+    name: "Llama Guard 4 12B"
+    description: "MLCommons standard, English content safety + multimodal"
+    api_url: "${LLAMA_GUARD_API_URL:-https://api.together.xyz/v1}"
+    api_key: "${LLAMA_GUARD_API_KEY}"
+    model_name: "${LLAMA_GUARD_MODEL_NAME:-meta-llama/Llama-Guard-4-12B}"
+    api_type: "chat_completion"
+    prompt_format: "llamaguard4"
+    response_format: "llamaguard4"
+    dimension: "english_safety"
+    specialties: ["english", "mlcommons"]
+    max_context_length: 8192
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 3. Prompt Injection Detection ──────────────────────────────────────
+  prompt-guard-86m:
+    name: "Prompt Guard 2 86M"
+    description: "Direct + indirect prompt injection detection, <10ms"
+    api_url: "${PROMPT_GUARD_API_URL:-http://127.0.0.1:58006}"
+    api_key: "${PROMPT_GUARD_API_KEY:-EMPTY}"
+    model_name: "Prompt-Guard-2-86M"
+    api_type: "classification"
+    prompt_format: "prompt_guard"
+    response_format: "prompt_guard"
+    dimension: "prompt_injection"
+    specialties: ["prompt_injection", "indirect_injection"]
+    max_context_length: 512
+    circuit_breaker:
+      failure_threshold: 3
+      cooldown_seconds: 15
+
+  # ── 4. Jailbreak Detection ────────────────────────────────────────────
+  wildguard-7b:
+    name: "WildGuard 7B"
+    description: "Jailbreak specialist, 25% better than Llama Guard on jailbreak"
+    api_url: "${WILDGUARD_API_URL:-https://api.together.xyz/v1}"
+    api_key: "${WILDGUARD_API_KEY}"
+    model_name: "${WILDGUARD_MODEL_NAME:-allenai/wildguard}"
+    api_type: "chat_completion"
+    prompt_format: "wildguard"
+    response_format: "wildguard"
+    dimension: "jailbreak"
+    specialties: ["jailbreak", "adversarial"]
+    max_context_length: 4096
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 5. Fine-Grained Toxicity ──────────────────────────────────────────
+  toxic-bert:
+    name: "Detoxify toxic-bert"
+    description: "6-dimensional toxicity scoring: insult, threat, hate, obscenity, identity_attack, sexually_explicit"
+    api_url: "${TOXIC_BERT_API_URL}"
+    api_key: "${TOXIC_BERT_API_KEY:-EMPTY}"
+    model_name: "unitary/toxic-bert"
+    api_type: "classification"
+    prompt_format: "huggingface_classify"
+    response_format: "toxicity_scores"
+    dimension: "toxicity"
+    specialties: ["toxicity", "hate_speech", "insult"]
+    max_context_length: 512
+    circuit_breaker:
+      failure_threshold: 3
+      cooldown_seconds: 15
+
+  # ── 6. PII & Data Leakage ────────────────────────────────────────────
+  gliner-pii:
+    name: "GLiNER-PII + Presidio"
+    description: "30+ PII entity types, zero-shot NER for novel entities"
+    api_url: "${GLINER_PII_API_URL}"
+    api_key: "${GLINER_PII_API_KEY:-EMPTY}"
+    model_name: "urchade/gliner_multi_pii-v1"
+    api_type: "ner"
+    prompt_format: "ner"
+    response_format: "ner_entities"
+    dimension: "pii_detection"
+    specialties: ["pii", "credentials", "financial_data", "medical_data"]
+    max_context_length: 1024
+    circuit_breaker:
+      failure_threshold: 3
+      cooldown_seconds: 15
+
+  # ── 7. Hallucination Detection ────────────────────────────────────────
+  vectara-hhem:
+    name: "Vectara HHEM v2.1"
+    description: "RAG hallucination detection, calibrated groundedness scoring"
+    api_url: "${VECTARA_HHEM_API_URL}"
+    api_key: "${VECTARA_HHEM_API_KEY:-EMPTY}"
+    model_name: "vectara/hallucination_evaluation_model"
+    api_type: "classification"
+    prompt_format: "cross_encoder"
+    response_format: "hallucination_score"
+    dimension: "hallucination"
+    specialties: ["hallucination", "factual_grounding", "rag"]
+    max_context_length: 2048
+    circuit_breaker:
+      failure_threshold: 3
+      cooldown_seconds: 15
+
+  # ── 8. Code Security Scanning ─────────────────────────────────────────
+  codeshield:
+    name: "CodeShield (Meta)"
+    description: "LLM-generated code vulnerability detection: injection, secrets, unsafe patterns"
+    api_url: "${CODESHIELD_API_URL}"
+    api_key: "${CODESHIELD_API_KEY:-EMPTY}"
+    model_name: "meta/codeshield"
+    api_type: "custom"
+    prompt_format: "codeshield"
+    response_format: "codeshield"
+    dimension: "code_security"
+    specialties: ["code_vulnerability", "secret_detection", "sql_injection"]
+    max_context_length: 4096
+    circuit_breaker:
+      failure_threshold: 3
+      cooldown_seconds: 15
+
+  # ── 9. Image Safety ──────────────────────────────────────────────────
+  shieldgemma-2b:
+    name: "ShieldGemma 2B"
+    description: "Image content safety: violence, NSFW, dangerous activities"
+    api_url: "${SHIELDGEMMA_API_URL}"
+    api_key: "${SHIELDGEMMA_API_KEY}"
+    model_name: "${SHIELDGEMMA_MODEL_NAME:-google/shieldgemma-2b}"
+    api_type: "chat_completion"
+    prompt_format: "shieldgemma"
+    response_format: "shieldgemma"
+    dimension: "image_safety"
+    specialties: ["image", "nsfw", "violence_image"]
+    max_context_length: 4096
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 10. Agent & Tool-Use Safety ───────────────────────────────────────
+  guard-agent-2:
+    name: "Invariant Guard Agent 2"
+    description: "Agent trace analysis: privilege escalation, data exfiltration via tools"
+    api_url: "${GUARD_AGENT_API_URL}"
+    api_key: "${GUARD_AGENT_API_KEY}"
+    model_name: "invariantlabs/guard-agent-2"
+    api_type: "chat_completion"
+    prompt_format: "guard_agent"
+    response_format: "guard_agent"
+    dimension: "agent_safety"
+    specialties: ["tool_call", "privilege_escalation", "agent_trace"]
+    max_context_length: 8192
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 11. Self-Harm & Crisis Detection ──────────────────────────────────
+  nvidia-aegis:
+    name: "NVIDIA Aegis"
+    description: "Suicide/self-harm detection with 3-level classification (safe/caution/unsafe)"
+    api_url: "${AEGIS_API_URL}"
+    api_key: "${AEGIS_API_KEY}"
+    model_name: "${AEGIS_MODEL_NAME:-nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0}"
+    api_type: "chat_completion"
+    prompt_format: "llamaguard4"
+    response_format: "llamaguard4"
+    dimension: "self_harm"
+    specialties: ["self_harm", "suicide", "crisis"]
+    max_context_length: 4096
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 12. Child Safety (COPPA/CSAM) ─────────────────────────────────────
+  azure-content-safety:
+    name: "Azure Content Safety"
+    description: "Child exploitation detection, grooming patterns, CSAM indicators"
+    api_url: "${AZURE_CONTENT_SAFETY_URL}"
+    api_key: "${AZURE_CONTENT_SAFETY_KEY}"
+    model_name: "azure/content-safety"
+    api_type: "custom"
+    prompt_format: "azure_content_safety"
+    response_format: "azure_content_safety"
+    dimension: "child_safety"
+    specialties: ["csam", "grooming", "child_protection", "coppa"]
+    max_context_length: 10000
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 13. Multilingual Safety (40+ Languages) ──────────────────────────
+  openai-moderation:
+    name: "OpenAI omni-moderation"
+    description: "40+ languages safety detection including low-resource languages"
+    api_url: "${OPENAI_MODERATION_API_URL:-https://api.openai.com/v1}"
+    api_key: "${OPENAI_MODERATION_API_KEY}"
+    model_name: "omni-moderation-latest"
+    api_type: "moderation"
+    prompt_format: "openai_moderation"
+    response_format: "openai_moderation"
+    dimension: "multilingual_safety"
+    specialties: ["arabic", "hindi", "thai", "vietnamese", "turkish", "multilingual"]
+    max_context_length: 32768
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 14. Copyright & IP Detection ──────────────────────────────────────
+  patronus-copyright:
+    name: "Patronus CopyrightCatcher"
+    description: "Detects verbatim/near-verbatim reproduction of copyrighted text"
+    api_url: "${PATRONUS_API_URL}"
+    api_key: "${PATRONUS_API_KEY}"
+    model_name: "patronus/copyright-catcher"
+    api_type: "custom"
+    prompt_format: "patronus"
+    response_format: "patronus"
+    dimension: "copyright"
+    specialties: ["copyright", "intellectual_property", "plagiarism"]
+    max_context_length: 8192
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30
+
+  # ── 15. Ultra-Low-Latency Screening ──────────────────────────────────
+  qwen3guard-06b:
+    name: "Qwen3Guard-Gen-0.6B"
+    description: "Ultra-fast safety screening for low-risk content, <50ms"
+    api_url: "${GUARD_06B_API_URL}"
+    api_key: "${GUARD_06B_API_KEY}"
+    model_name: "${GUARD_06B_MODEL_NAME:-Qwen3Guard-Gen-0.6B}"
+    api_type: "chat_completion"
+    prompt_format: "qwen3guard"
+    response_format: "qwen3guard"
+    dimension: "fast_screening"
+    specialties: ["fast_track", "low_latency"]
+    max_context_length: 4096
+    circuit_breaker:
+      failure_threshold: 3
+      cooldown_seconds: 15
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Routing Rules
+# ═══════════════════════════════════════════════════════════════════════════
+# Rules evaluated by priority (descending). First match wins.
+# Condition fields (ALL must match = AND logic):
+#   language: "zh" | "en" | "other"
+#   min_confidence: 0.0-1.0 (for language detection)
+#   max_content_length: int (character count)
+#   no_assistant_messages: true (single-turn only)
+#   only_scanner_tags: ["S9"] (exact match on enabled scanner set)
+#   has_image: true (messages contain image_url)
+#   has_code: true (content contains code blocks)
+#   has_tool_calls: true (messages contain tool_calls)
+#   dimension: "toxicity" (route by explicit dimension request)
+
+routing:
+  enabled: true
+  default_model: "qwen3guard-8b"
+  ml_fallback:
+    enabled: true              # Use ML classifier when no rule matches
+    min_confidence: 0.6        # Minimum softmax probability to accept ML result
+    weights_path: ""           # Path to classifier_weights.json (empty = auto-detect in guard_router_data/)
+  rules:
+
+    # Fast track: short single-turn content → 0.6B for quick screening
+    - name: "fast_track_short"
+      description: "Short single-turn content to ultra-fast 0.6B model"
+      condition:
+        max_content_length: 200
+        no_assistant_messages: true
+      target_model: "qwen3guard-06b"
+      priority: 200
+
+    # Image content → ShieldGemma
+    - name: "image_safety"
+      description: "Image content routed to ShieldGemma"
+      condition:
+        has_image: true
+      target_model: "shieldgemma-2b"
+      priority: 180
+
+    # Code blocks → CodeShield
+    - name: "code_security"
+      description: "Code content routed to CodeShield"
+      condition:
+        has_code: true
+      target_model: "codeshield"
+      priority: 170
+
+    # Tool calls → Guard Agent 2
+    - name: "agent_tool_safety"
+      description: "Agent tool calls routed to Invariant Guard"
+      condition:
+        has_tool_calls: true
+      target_model: "guard-agent-2"
+      priority: 160
+
+    # Only S9 scanner → WildGuard (jailbreak specialist)
+    - name: "jailbreak_specialist"
+      description: "S9-only detection routed to WildGuard"
+      condition:
+        only_scanner_tags: ["S9"]
+      target_model: "wildguard-7b"
+      priority: 150
+
+    # Explicit dimension routing (from API extra_body.guard_dimension)
+    - name: "dimension_toxicity"
+      condition: { dimension: "toxicity" }
+      target_model: "toxic-bert"
+      priority: 140
+
+    - name: "dimension_hallucination"
+      condition: { dimension: "hallucination" }
+      target_model: "vectara-hhem"
+      priority: 140
+
+    - name: "dimension_pii"
+      condition: { dimension: "pii_detection" }
+      target_model: "gliner-pii"
+      priority: 140
+
+    - name: "dimension_self_harm"
+      condition: { dimension: "self_harm" }
+      target_model: "nvidia-aegis"
+      priority: 140
+
+    - name: "dimension_child_safety"
+      condition: { dimension: "child_safety" }
+      target_model: "azure-content-safety"
+      priority: 140
+
+    - name: "dimension_copyright"
+      condition: { dimension: "copyright" }
+      target_model: "patronus-copyright"
+      priority: 140
+
+    # English content → Llama Guard 4
+    - name: "english_content"
+      description: "English-dominant content to Llama Guard 4"
+      condition:
+        language: "en"
+        min_confidence: 0.8
+      target_model: "llama-guard-4"
+      priority: 50
+
+    # Non-EN/ZH → OpenAI omni-moderation (40+ languages)
+    - name: "multilingual_content"
+      description: "Non-EN/ZH content to OpenAI omni-moderation"
+      condition:
+        language: "other"
+      target_model: "openai-moderation"
+      priority: 40
+
+    # Chinese content falls through to default (qwen3guard-8b)

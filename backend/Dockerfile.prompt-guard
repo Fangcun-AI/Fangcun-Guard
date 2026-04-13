@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    torch \
+    transformers \
+    fastapi \
+    uvicorn \
+    pydantic
+
+COPY prompt_guard_server.py .
+
+EXPOSE 58006
+
+CMD ["python", "prompt_guard_server.py", "--port", "58006"]
