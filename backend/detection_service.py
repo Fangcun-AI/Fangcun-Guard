@@ -19,6 +19,7 @@ from database.connection import init_db, create_detection_engine
 from routers import detection_guardrails, dify_moderation, billing, model_direct_access, content_scan
 from services.async_logger import async_detection_logger
 from utils.logger import setup_logger
+from utils.request_headers import read_external_app_id
 
 # Set security verification (auto_error=False to allow manual handling)
 security = HTTPBearer(auto_error=False)
@@ -26,7 +27,7 @@ security = HTTPBearer(auto_error=False)
 # Import concurrent control middleware
 from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware
 
-class AuthContextMiddleware(BaseHTTPMiddleware):
+class AuthCtxMiddleware(BaseHTTPMiddleware):
     """Authentication context middleware - detection service version (simplified version)"""
 
     async def dispatch(self, request: Request, call_next):
@@ -44,8 +45,8 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
                 if token:
                     try:
-                        # Pass request to access X-OG-Application-ID header for auto-discovery
-                        auth_context = await self._get_auth_context(token, request)
+                        # Pass request so auto-discovery can read the application header aliases.
+                        auth_context = await self._load_auth_ctx(token, request)
                         request.state.auth_context = auth_context
                     except Exception as e:
                         logger.warning(f"Auth context resolution failed: {e}")
@@ -58,12 +59,12 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
-    async def _get_auth_context(self, token: str, request: Request = None):
+    async def _load_auth_ctx(self, token: str, request: Request = None):
         """Get authentication context (optimized version with application support and auto-discovery)"""
         from utils.auth_cache import auth_cache
 
         # Get external app ID from header for auto-discovery (don't cache with external app ID as it creates unique apps)
-        external_app_id = request.headers.get('X-OG-Application-ID') if request else None
+        external_app_id = read_external_app_id(request.headers) if request else None
 
         # Check cache (only if no external app ID - external app ID requests create new apps)
         if not external_app_id:
@@ -74,7 +75,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         # Cache miss or external app ID present, verify token
         from database.connection import get_detection_db_session
         from database.models import Tenant, Application
-        from utils.user import get_user_by_api_key, get_application_by_api_key, get_or_create_application_by_external_id
+        from utils.user import ensure_app_for_external_id, find_app_by_key, find_tenant_by_key
         from utils.auth import verify_token
 
         db = get_detection_db_session()
@@ -111,14 +112,14 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             except (ValueError, KeyError, Exception) as jwt_err:
                 # JWT verification failed, try API key verification
                 logger.debug(f"JWT verification failed, trying API key: {jwt_err}")
-                # When X-OG-Application-ID header is present, prioritize tenant API key for auto-discovery
+                # When an external application header is present, prioritize tenant API key for auto-discovery.
                 # This allows the same key to work both ways: as application key (normal) or tenant key (with header)
                 if external_app_id:
                     # Auto-discovery mode: check tenant API key FIRST
-                    user = get_user_by_api_key(db, token)
+                    user = find_tenant_by_key(db, token)
                     if user:
                         # Auto-discovery mode: get or create application by external app ID
-                        app_info = get_or_create_application_by_external_id(db, str(user.id), external_app_id)
+                        app_info = ensure_app_for_external_id(db, str(user.id), external_app_id)
                         if app_info:
                             auth_context = {
                                 "type": "tenant_api_key_with_consumer",
@@ -134,7 +135,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                             }
                 else:
                     # Normal mode: check application API key first (new multi-application support)
-                    app_data = get_application_by_api_key(db, token)
+                    app_data = find_app_by_key(db, token)
                     if app_data:
                         auth_context = {
                             "type": "api_key",
@@ -148,7 +149,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                         }
                     else:
                         # Fallback to tenant API key verification (backward compatible)
-                        user = get_user_by_api_key(db, token)
+                        user = find_tenant_by_key(db, token)
                         if user:
                             # No external app ID - get first active application (backward compatible)
                             first_app = db.query(Application).filter(
@@ -228,7 +229,7 @@ from middleware.billing_middleware import BillingMiddleware
 app.add_middleware(BillingMiddleware)
 
 # Add authentication context middleware
-app.add_middleware(AuthContextMiddleware)
+app.add_middleware(AuthCtxMiddleware)
 
 # Configure CORS
 app.add_middleware(
@@ -281,7 +282,7 @@ async def metrics():
     return Response(content="\n".join(lines) + "\n", media_type="text/plain; charset=utf-8")
 
 # User authentication function (simplified version)
-async def verify_user_auth(
+async def require_auth_ctx(
     credentials: HTTPAuthorizationCredentials = Security(security),
     request: Request = None,
 ):
@@ -296,12 +297,12 @@ async def verify_user_auth(
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 # Register detection routes (special version)
-app.include_router(detection_guardrails.router, prefix="/v1", dependencies=[Depends(verify_user_auth)])
-app.include_router(dify_moderation.router, prefix="/v1", dependencies=[Depends(verify_user_auth)])  # Dify API-based Extension
-app.include_router(billing.router, dependencies=[Depends(verify_user_auth)])  # Billing APIs
-app.include_router(content_scan.router, prefix="/v1", dependencies=[Depends(verify_user_auth)])  # Content Scan APIs
+app.include_router(detection_guardrails.router, prefix="/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(dify_moderation.router, prefix="/v1", dependencies=[Depends(require_auth_ctx)])  # Dify API-based Extension
+app.include_router(billing.router, dependencies=[Depends(require_auth_ctx)])  # Billing APIs
+app.include_router(content_scan.router, prefix="/v1", dependencies=[Depends(require_auth_ctx)])  # Content Scan APIs
 
-# Register direct model access routes (no dependency on verify_user_auth, uses its own auth)
+# Register direct model access routes (no dependency on require_auth_ctx, uses its own auth)
 app.include_router(model_direct_access.router, prefix="/v1")  # Direct Model Access (auth handled internally)
 
 # Register appeal routes (public endpoint, no authentication required)

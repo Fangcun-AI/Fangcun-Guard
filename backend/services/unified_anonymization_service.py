@@ -2,7 +2,7 @@
 Unified Anonymization Service
 
 Provides a single entry point for all anonymization needs, used by both:
-- OG Native Gateway (proxy_api.py)
+- FangcunGuard native gateway (proxy_api.py)
 - Higress Integration (gateway_integration_service.py)
 
 Key design decisions:

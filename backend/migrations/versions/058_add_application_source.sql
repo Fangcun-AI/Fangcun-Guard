@@ -1,6 +1,6 @@
 -- Migration: Add source and external_id columns to applications table
 -- Purpose: Support automatic application discovery from third-party gateways (e.g., Higress)
--- When using tenant API key with consumer header, OG can auto-create applications
+-- When using tenant API key with consumer header, FangcunGuard can auto-create applications
 
 -- Add source column to track how the application was created
 -- 'manual' - Created manually via UI or API

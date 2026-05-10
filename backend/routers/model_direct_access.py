@@ -45,7 +45,7 @@ class ChatCompletionRequest(BaseModel):
     n: Optional[int] = Field(default=1, ge=1)
 
 
-async def verify_model_api_key(request: Request) -> dict:
+async def require_model_key(request: Request) -> dict:
     """
     Verify model API key from Authorization header.
     Returns tenant info if valid, raises HTTPException if invalid.
@@ -123,7 +123,7 @@ async def verify_model_api_key(request: Request) -> dict:
         db.close()
 
 
-async def track_direct_model_access(
+async def log_direct_access(
     tenant_id: str,
     model_name: str,
     request_content: str,
@@ -138,7 +138,7 @@ async def track_direct_model_access(
     For privacy: by default, stores minimal information (model name only).
     If tenant has enabled log_direct_model_access, stores full request and response content.
     
-    For OG-Text model, parses response to detect injection attacks:
+    For FangcunGuard-Text style models, parses response to detect injection attacks:
     - Response format: {"isInjection": true/false, "confidence": 0.0-1.0, "reason": "...", "findings": [...]}
     - Maps isInjection to security_risk_level (prompt attack)
     """
@@ -165,12 +165,13 @@ async def track_direct_model_access(
             logged_response = ""
             logger.debug(f"Logging DMA with minimal content for tenant={tenant_id} (log_direct_model_access=False)")
 
-        # Parse DMA response for risk detection (for OG-Text model)
+        # Parse DMA response for risk detection on FangcunGuard text-model aliases.
         security_risk_level = 'no_risk'
         security_categories = []
         suggest_action = 'pass'
-        
-        if response_content and model_name and 'og-text' in model_name.lower():
+
+        dma_text_aliases = ('fangcunguard-text', 'guardrails-text', 'og-text')
+        if response_content and model_name and any(alias in model_name.lower() for alias in dma_text_aliases):
             try:
                 # Try to parse the response as JSON
                 response_json = json.loads(response_content)
@@ -264,7 +265,7 @@ async def track_direct_model_access(
         db.close()
 
 
-def get_model_config(model_name: str) -> dict:
+def resolve_model_backend(model_name: str) -> dict:
     """
     Get the backend API configuration based on the requested model name.
     
@@ -273,8 +274,8 @@ def get_model_config(model_name: str) -> dict:
     through as-is to the upstream API.
 
     Routing logic:
-    - Text models (fangcunguard-text, guardrails-text, og-text) → GUARDRAILS_MODEL_API
-    - Vision models (fangcunguard-vl, guardrails-vl, og-vl) → GUARDRAILS_VL_MODEL_API
+    - Text models (fangcunguard-text, guardrails-text, legacy aliases) → GUARDRAILS_MODEL_API
+    - Vision models (fangcunguard-vl, guardrails-vl, legacy aliases) → GUARDRAILS_VL_MODEL_API
     - Embedding models (bge-m3, bge, embedding) → EMBEDDING_API
     - Other models → Default to GUARDRAILS_MODEL_API
 
@@ -321,7 +322,7 @@ def get_model_config(model_name: str) -> dict:
 async def model_chat_completions(
     request_data: ChatCompletionRequest,
     request: Request,
-    auth_context: dict = Depends(verify_model_api_key)
+    auth_context: dict = Depends(require_model_key)
 ):
     """
     OpenAI-compatible chat completions endpoint for direct model access.
@@ -332,7 +333,7 @@ async def model_chat_completions(
     Model routing:
     - The exact model name you specify will be passed to the upstream API
     - The system automatically routes to the correct backend based on model name patterns
-    - Example: "OG-Text" → routes to guardrails API, sends "OG-Text" to upstream
+    - Example: "FangcunGuard-Text" → routes to guardrails API, sends "FangcunGuard-Text" to upstream
     - Example: "bge-m3" → routes to embedding API, sends "bge-m3" to upstream
 
     Example usage:
@@ -345,7 +346,7 @@ async def model_chat_completions(
     )
 
     response = client.chat.completions.create(
-        model="OG-Text",  # Your requested model name is sent as-is to upstream
+        model="FangcunGuard-Text",  # Your requested model name is sent as-is to upstream
         messages=[{"role": "user", "content": "Hello"}]
     )
     ```
@@ -360,9 +361,9 @@ async def model_chat_completions(
     logger.info(f"Direct model access: tenant={tenant_id}, model={requested_model_name}, stream={request_data.stream}")
 
     # Get complete model configuration (URL, API Key)
-    model_config = get_model_config(requested_model_name)
-    model_api_url = model_config['api_url']
-    model_api_key = model_config['api_key']
+    backend = resolve_model_backend(requested_model_name)
+    model_api_url = backend['api_url']
+    model_api_key = backend['api_key']
     # Note: We pass through the user's requested model name directly to upstream
 
     # Prepare auth header for upstream model (use the correct API key for this model)
@@ -436,7 +437,7 @@ async def model_chat_completions(
                 messages_content = " ".join([f"{msg.role}: {msg.content}" for msg in request_data.messages])
                 response_content = "".join(accumulated_response)
                 
-                await track_direct_model_access(
+                await log_direct_access(
                     tenant_id=tenant_id,
                     model_name=requested_model_name,
                     request_content=f"[Streaming] {messages_content}",
@@ -474,7 +475,7 @@ async def model_chat_completions(
                 # Track direct model access
                 # Pass the actual messages content for logging (will be filtered based on tenant config)
                 messages_content = " ".join([f"{msg.role}: {msg.content}" for msg in request_data.messages])
-                await track_direct_model_access(
+                await log_direct_access(
                     tenant_id=tenant_id,
                     model_name=requested_model_name,
                     request_content=messages_content,
@@ -518,7 +519,7 @@ class EmbeddingRequest(BaseModel):
 async def model_embeddings(
     request_data: EmbeddingRequest,
     request: Request,
-    auth_context: dict = Depends(verify_model_api_key)
+    auth_context: dict = Depends(require_model_key)
 ):
     """
     OpenAI-compatible embeddings endpoint for direct model access.
@@ -551,9 +552,9 @@ async def model_embeddings(
     logger.info(f"Direct model access (embeddings): tenant={tenant_id}, model={requested_model_name}")
 
     # Get complete model configuration (URL, API Key)
-    model_config = get_model_config(requested_model_name)
-    model_api_url = model_config['api_url']
-    model_api_key = model_config['api_key']
+    backend = resolve_model_backend(requested_model_name)
+    model_api_url = backend['api_url']
+    model_api_key = backend['api_key']
 
     # Prepare auth header for upstream model
     upstream_headers = {
@@ -590,7 +591,7 @@ async def model_embeddings(
             # Pass the actual input for logging (will be filtered based on tenant config)
             input_content = str(request_data.input)
             # For embeddings, response is just vectors, not useful for risk analysis
-            await track_direct_model_access(
+            await log_direct_access(
                 tenant_id=tenant_id,
                 model_name=requested_model_name,
                 request_content=f"[Embeddings] {input_content}",
@@ -624,7 +625,7 @@ async def model_embeddings(
 @router.get("/model/usage")
 async def get_model_usage(
     request: Request,
-    auth_context: dict = Depends(verify_model_api_key),
+    auth_context: dict = Depends(require_model_key),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None
 ):

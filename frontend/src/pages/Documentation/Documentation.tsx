@@ -1261,9 +1261,9 @@ response = requests.post(
                     </h4>
                     <p className="text-zinc-400 text-sm mt-1">{t('applicationManagement.discovery.step1')}</p>
                     <pre className="mt-2 bg-zinc-800/50 p-3 rounded-md text-xs border border-zinc-800 overflow-auto">
-{`# og-connector plugin configuration
-og_api_key: "sk-xxai-your-tenant-api-key"
-og_api_base_url: "https://your-og-server.com"`}
+{`# FangcunGuard gateway connector configuration
+fangcunguard_api_key: "sk-xxai-your-tenant-api-key"
+fangcunguard_api_base_url: "https://your-fangcunguard-server.com"`}
                     </pre>
                   </div>
                 </div>
@@ -1282,8 +1282,8 @@ og_api_base_url: "https://your-og-server.com"`}
 {`# Higress gateway adds consumer header
 x-mse-consumer: "your-app-name"
 
-# OG receives as
-X-OG-Application-ID: "your-app-name"`}
+# FangcunGuard receives as
+X-FangcunGuard-Application-ID: "your-app-name"`}
                     </pre>
                   </div>
                 </div>

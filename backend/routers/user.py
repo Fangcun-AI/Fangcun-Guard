@@ -8,7 +8,7 @@ from typing import Optional
 from database.connection import get_admin_db
 from database.models import Tenant, EmailVerification
 from utils.auth import create_access_token, verify_token, verify_password, get_password_hash
-from utils.user import create_user, verify_user_email, regenerate_api_key, get_user_by_email, get_user_by_api_key, record_login_attempt, check_login_rate_limit
+from utils.user import add_user, confirm_user_email, rotate_api_key, find_user_by_email, find_tenant_by_key, save_login_attempt, login_rate_ok
 from utils.email import send_verification_email, generate_verification_code, get_verification_expiry
 from config import settings
 from services.admin_service import admin_service
@@ -100,7 +100,7 @@ async def register_user(register_data: RegisterRequest, db: Session = Depends(ge
         )
 
     # Check if email already exists
-    existing_tenant = get_user_by_email(db, register_data.email)
+    existing_tenant = find_user_by_email(db, register_data.email)
     if existing_tenant:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -109,7 +109,7 @@ async def register_user(register_data: RegisterRequest, db: Session = Depends(ge
 
     # Create tenant
     try:
-        tenant = create_user(db, register_data.email, register_data.password)
+        tenant = add_user(db, register_data.email, register_data.password)
     except ValueError as e:
         # Handle password validation errors gracefully
         raise HTTPException(
@@ -151,7 +151,7 @@ async def register_user(register_data: RegisterRequest, db: Session = Depends(ge
 @router.post("/verify-email")
 async def verify_email(verify_data: VerifyEmailRequest, db: Session = Depends(get_admin_db)):
     """Verify email"""
-    if not verify_user_email(db, verify_data.email, verify_data.verification_code):
+    if not confirm_user_email(db, verify_data.email, verify_data.verification_code):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired verification code"
@@ -164,7 +164,7 @@ async def resend_verification_code(resend_data: ResendCodeRequest, db: Session =
     """Resend verification code"""
     try:
         # Check if tenant exists and is not verified
-        tenant = get_user_by_email(db, resend_data.email)
+        tenant = find_user_by_email(db, resend_data.email)
         if not tenant:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -217,24 +217,24 @@ async def login_user(login_data: LoginRequest, request: Request, db: Session = D
     user_agent = request.headers.get("user-agent", "")
 
     # Check login rate limit
-    if not check_login_rate_limit(db, login_data.email, client_ip):
-        record_login_attempt(db, login_data.email, client_ip, user_agent, False)
+    if not login_rate_ok(db, login_data.email, client_ip):
+        save_login_attempt(db, login_data.email, client_ip, user_agent, False)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many login attempts. Please try again later."
         )
 
     # Unified tenant login
-    tenant = get_user_by_email(db, login_data.email)
+    tenant = find_user_by_email(db, login_data.email)
     if not tenant:
-        record_login_attempt(db, login_data.email, client_ip, user_agent, False)
+        save_login_attempt(db, login_data.email, client_ip, user_agent, False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
         )
 
     if not verify_password(login_data.password, tenant.password_hash):
-        record_login_attempt(db, login_data.email, client_ip, user_agent, False)
+        save_login_attempt(db, login_data.email, client_ip, user_agent, False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
@@ -242,7 +242,7 @@ async def login_user(login_data: LoginRequest, request: Request, db: Session = D
 
     # Check if account is active and email is verified
     if not tenant.is_active or not tenant.is_verified:
-        record_login_attempt(db, login_data.email, client_ip, user_agent, False)
+        save_login_attempt(db, login_data.email, client_ip, user_agent, False)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account not verified. Please check your email address and complete verification."
@@ -259,7 +259,7 @@ async def login_user(login_data: LoginRequest, request: Request, db: Session = D
         db.commit()
 
     # Record successful login
-    record_login_attempt(db, login_data.email, client_ip, user_agent, True)
+    save_login_attempt(db, login_data.email, client_ip, user_agent, True)
 
     access_token_expires = timedelta(minutes=settings.jwt_access_token_expire_minutes)
     is_super_admin = admin_service.is_super_admin(tenant)
@@ -325,7 +325,7 @@ async def regenerate_user_api_key(
     """Regenerate API key"""
     tenant = get_current_user_from_token(credentials, db)
 
-    new_api_key = regenerate_api_key(db, tenant.id)
+    new_api_key = rotate_api_key(db, tenant.id)
     if not new_api_key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

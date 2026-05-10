@@ -19,9 +19,9 @@ import time
 
 from database.connection import get_db
 from sqlalchemy.orm import Session
-from services.gateway_integration_service import get_gateway_integration_service
+from services.gateway_integration_service import build_gateway_service
 from utils.logger import setup_logger
-from utils.bypass_token import verify_bypass_token, BYPASS_TOKEN_HEADER
+from utils.bypass_token import parse_bypass_token, read_bypass_token
 
 router = APIRouter(prefix="/v1/gateway", tags=["Gateway Integration"])
 logger = setup_logger()
@@ -64,7 +64,7 @@ class ProcessOutputRequest(BaseModel):
         }
 
 
-def get_auth_info_from_request(request: Request) -> Dict[str, str]:
+def auth_ids_from_request(request: Request) -> Dict[str, str]:
     """Extract tenant_id and application_id from request auth context"""
     auth_context = getattr(request.state, 'auth_context', None)
     if not auth_context:
@@ -87,10 +87,15 @@ def get_auth_info_from_request(request: Request) -> Dict[str, str]:
     return {"tenant_id": tenant_id, "application_id": application_id}
 
 
+def elapsed_ms(start_time: float) -> float:
+    """Return elapsed milliseconds from a ``time.time()`` value."""
+    return round((time.time() - start_time) * 1000, 2)
+
+
 @router.post("/process-input")
 async def process_input(
     request: Request,
-    body: ProcessInputRequest,
+    payload: ProcessInputRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -116,9 +121,9 @@ async def process_input(
     start_time = time.time()
 
     # Check for bypass token (skip detection for private model requests)
-    bypass_token = request.headers.get(BYPASS_TOKEN_HEADER)
+    bypass_token = read_bypass_token(request.headers)
     if bypass_token:
-        is_valid, token_tenant_id, token_request_id = verify_bypass_token(bypass_token)
+        is_valid, token_tenant_id, token_request_id = parse_bypass_token(bypass_token)
         if is_valid:
             logger.info(f"Bypass token valid: tenant={token_tenant_id}, request={token_request_id}, skipping detection")
             return JSONResponse(content={
@@ -129,35 +134,34 @@ async def process_input(
                     "original_request_id": token_request_id,
                     "overall_risk_level": "no_risk"
                 },
-                "processing_time_ms": round((time.time() - start_time) * 1000, 2)
+                "processing_time_ms": elapsed_ms(start_time)
             })
         else:
             logger.warning(f"Invalid bypass token received, proceeding with normal detection")
 
     # Get tenant_id and application_id from API key
-    auth_info = get_auth_info_from_request(request)
+    auth_info = auth_ids_from_request(request)
     tenant_id = auth_info["tenant_id"]
     application_id = auth_info["application_id"]
 
     # Debug: log received messages
-    logger.info(f"Gateway process-input received: messages_count={len(body.messages)}, stream={body.stream}")
-    if body.messages:
-        for i, msg in enumerate(body.messages):
+    logger.info(f"Gateway process-input received: messages_count={len(payload.messages)}, stream={payload.stream}")
+    if payload.messages:
+        for i, msg in enumerate(payload.messages):
             logger.info(f"  Message {i}: role={msg.get('role')}, content_len={len(str(msg.get('content', '')))}, content_preview={str(msg.get('content', ''))[:100]}")
 
-    service = get_gateway_integration_service(db)
+    service = build_gateway_service(db)
 
     result = await service.process_input(
         application_id=application_id,
         tenant_id=tenant_id,
-        messages=body.messages,
-        stream=body.stream,
-        client_ip=body.client_ip,
-        user_id=body.user_id
+        messages=payload.messages,
+        stream=payload.stream,
+        client_ip=payload.client_ip,
+        user_id=payload.user_id
     )
 
-    # Add timing info
-    result["processing_time_ms"] = round((time.time() - start_time) * 1000, 2)
+    result["processing_time_ms"] = elapsed_ms(start_time)
 
     logger.info(
         f"Gateway process-input: app={application_id[:8]}..., "
@@ -172,7 +176,7 @@ async def process_input(
 @router.post("/process-output")
 async def process_output(
     request: Request,
-    body: ProcessOutputRequest,
+    payload: ProcessOutputRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -195,30 +199,29 @@ async def process_output(
     start_time = time.time()
 
     # Get tenant_id and application_id from API key
-    auth_info = get_auth_info_from_request(request)
+    auth_info = auth_ids_from_request(request)
     tenant_id = auth_info["tenant_id"]
     application_id = auth_info["application_id"]
 
-    service = get_gateway_integration_service(db)
+    service = build_gateway_service(db)
 
     result = await service.process_output(
         application_id=application_id,
         tenant_id=tenant_id,
-        content=body.content,
-        session_id=body.session_id,
-        restore_mapping=body.restore_mapping,
-        is_streaming=body.is_streaming,
-        chunk_index=body.chunk_index,
-        input_messages=body.messages
+        content=payload.content,
+        session_id=payload.session_id,
+        restore_mapping=payload.restore_mapping,
+        is_streaming=payload.is_streaming,
+        chunk_index=payload.chunk_index,
+        input_messages=payload.messages
     )
 
-    # Add timing info
-    result["processing_time_ms"] = round((time.time() - start_time) * 1000, 2)
+    result["processing_time_ms"] = elapsed_ms(start_time)
 
     logger.info(
         f"Gateway process-output: app={application_id[:8]}..., "
         f"action={result.get('action')}, "
-        f"session={'yes' if body.session_id else 'no'}, "
+        f"session={'yes' if payload.session_id else 'no'}, "
         f"time={result['processing_time_ms']}ms"
     )
 

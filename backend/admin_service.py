@@ -26,7 +26,7 @@ security = HTTPBearer()
 # Import concurrent control middleware
 from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware
 
-class AuthContextMiddleware(BaseHTTPMiddleware):
+class AuthCtxMiddleware(BaseHTTPMiddleware):
     """Authentication context middleware - management service version (full version)"""
     
     async def dispatch(self, request: Request, call_next):
@@ -48,7 +48,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
                 if token:
                     try:
-                        auth_context = await self._get_auth_context(token, switch_session)
+                        auth_context = await self._load_auth_ctx(token, switch_session)
                         request.state.auth_context = auth_context
                     except Exception as e:
                         logger.error(f"Failed to get auth_context: {e}")
@@ -61,7 +61,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
     
-    async def _get_auth_context(self, token: str, switch_session: str = None):
+    async def _load_auth_ctx(self, token: str, switch_session: str = None):
         """Get authentication context (full version, supports user switch and application)"""
         from utils.auth_cache import auth_cache
 
@@ -75,7 +75,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
         from database.connection import get_admin_db_session
         from database.models import Tenant, Application
-        from utils.user import get_user_by_api_key, get_application_by_api_key
+        from utils.user import find_tenant_by_key, find_app_by_key
         from utils.auth import verify_token
 
         db = get_admin_db_session()
@@ -160,7 +160,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                             }
             except:
                 # API key verification (try new multi-application support first)
-                app_data = get_application_by_api_key(db, token)
+                app_data = find_app_by_key(db, token)
                 if app_data:
                     # New API key format with application support
                     auth_context = {
@@ -176,7 +176,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                     }
                 else:
                     # Fallback to old API key (for backward compatibility)
-                    user = get_user_by_api_key(db, token)
+                    user = find_tenant_by_key(db, token)
                     if user:
                         # Check user switch
                         if switch_session and admin_service.is_super_admin(user):
@@ -285,7 +285,7 @@ app = FastAPI(
 app.add_middleware(ConcurrentLimitMiddleware, service_type="admin", max_concurrent=settings.admin_max_concurrent_requests)
 
 # Add authentication context middleware
-app.add_middleware(AuthContextMiddleware)
+app.add_middleware(AuthCtxMiddleware)
 
 # Configure CORS
 app.add_middleware(
@@ -322,7 +322,7 @@ async def health_check():
     }
 
 # User authentication function (full version)
-async def verify_user_auth(
+async def require_auth_ctx(
     credentials: HTTPAuthorizationCredentials = Security(security),
     request: Request = None,
 ):
@@ -337,7 +337,7 @@ async def verify_user_auth(
     token = credentials.credentials
     from database.connection import get_admin_db_session
     from database.models import Tenant
-    from utils.user import get_user_by_api_key
+    from utils.user import find_tenant_by_key
     from utils.auth import verify_token
     
     db = get_admin_db_session()
@@ -365,7 +365,7 @@ async def verify_user_auth(
             pass
         
         # API key verification
-        user = get_user_by_api_key(db, token)
+        user = find_tenant_by_key(db, token)
         if user:
             return {
                 "type": "api_key", 
@@ -385,61 +385,61 @@ async def verify_user_auth(
 # Register management routes
 app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(user.router, prefix="/api/v1/users")
-app.include_router(dashboard.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
+app.include_router(dashboard.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
 # Register public config routes (no auth required - e.g., system-info for deployment mode)
 app.include_router(config_api.public_router, prefix="/api/v1")
 # Register protected config routes (auth required)
-app.include_router(config_api.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
-app.include_router(results.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
-app.include_router(sync.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
-app.include_router(admin.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
-app.include_router(online_test.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
-app.include_router(proxy_management.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
-app.include_router(concurrent_stats.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(config_api.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(results.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(sync.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(admin.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(online_test.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(proxy_management.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(concurrent_stats.router, dependencies=[Depends(require_auth_ctx)])
 # Data Security entity types management
 from routers import data_security
-app.include_router(data_security.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
+app.include_router(data_security.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
 
 # Data Leakage Policy management
 from routers import data_leakage_policy_api
-app.include_router(data_leakage_policy_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(data_leakage_policy_api.router, dependencies=[Depends(require_auth_ctx)])
 
 # Gateway Policy management (unified security policy for Security Gateway)
 from routers import gateway_policy_api
-app.include_router(gateway_policy_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(gateway_policy_api.router, dependencies=[Depends(require_auth_ctx)])
 
 # Model Routes management (automatic model routing for Security Gateway)
-app.include_router(model_routes_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(model_routes_api.router, dependencies=[Depends(require_auth_ctx)])
 
 # Billing and Payment routes (only in SaaS mode)
 if settings.is_saas_mode:
-    app.include_router(billing.router, dependencies=[Depends(verify_user_auth)])  # Billing APIs
+    app.include_router(billing.router, dependencies=[Depends(require_auth_ctx)])  # Billing APIs
     app.include_router(payment_api.router)  # Payment API (webhook endpoints don't require auth)
     logger.info("Billing and payment routes enabled (SaaS mode)")
 else:
     logger.info("Billing and payment routes disabled (enterprise mode)")
 
-app.include_router(applications.router, prefix="/api/v1/applications", dependencies=[Depends(verify_user_auth)])  # Application Management
+app.include_router(applications.router, prefix="/api/v1/applications", dependencies=[Depends(require_auth_ctx)])  # Application Management
 
 # Scanner Package System routes
-app.include_router(scanner_packages_api.router, dependencies=[Depends(verify_user_auth)])  # Scanner Packages
-app.include_router(scanner_configs_api.router, dependencies=[Depends(verify_user_auth)])  # Scanner Configs
-app.include_router(custom_scanners_api.router, dependencies=[Depends(verify_user_auth)])  # Custom Scanners
+app.include_router(scanner_packages_api.router, dependencies=[Depends(require_auth_ctx)])  # Scanner Packages
+app.include_router(scanner_configs_api.router, dependencies=[Depends(require_auth_ctx)])  # Scanner Configs
+app.include_router(custom_scanners_api.router, dependencies=[Depends(require_auth_ctx)])  # Custom Scanners
 
 # Package purchase routes (only in SaaS mode for premium packages)
 if settings.is_saas_mode:
-    app.include_router(purchase_api.router, dependencies=[Depends(verify_user_auth)])  # Package Purchases
+    app.include_router(purchase_api.router, dependencies=[Depends(require_auth_ctx)])  # Package Purchases
     logger.info("Package purchase routes enabled (SaaS mode)")
 else:
     logger.info("Package purchase routes disabled (enterprise mode)")
 
 # Import and register ban policy routes
 from routers import ban_policy_api
-app.include_router(ban_policy_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(ban_policy_api.router, dependencies=[Depends(require_auth_ctx)])
 
 # Import and register appeal configuration routes
 from routers import appeal_api
-app.include_router(appeal_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(appeal_api.router, dependencies=[Depends(require_auth_ctx)])
 
 # Plugin system: discover and register plugins (sync), then register their routers
 from plugins.manager import plugin_manager as _pm
@@ -447,14 +447,14 @@ from plugins.registry import plugin_registry as _pr
 _pm.discover_and_register()  # sync: importlib discovery only, no async calls
 for _pname, _plugin in _pr.get_all().items():
     for _router in _plugin.get_routers():
-        app.include_router(_router, dependencies=[Depends(verify_user_auth)])
+        app.include_router(_router, dependencies=[Depends(require_auth_ctx)])
 
 # Plugin management API (Tool Center)
 from routers import plugins_api
-app.include_router(plugins_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(plugins_api.router, dependencies=[Depends(require_auth_ctx)])
 
 # Risk configuration routes
-app.include_router(risk_config_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(risk_config_api.router, dependencies=[Depends(require_auth_ctx)])
 # Media router: image upload/delete needs authentication, but image access does not need authentication
 # First register image access routes that do not need authentication
 from fastapi import APIRouter
@@ -480,7 +480,8 @@ async def get_image_public(tenant_id: str, filename: str):
         raise HTTPException(status_code=500, detail=f"Get image failed: {str(e)}")
 
 app.include_router(public_media_router, prefix="/api/v1")
-app.include_router(media.router, prefix="/api/v1", dependencies=[Depends(verify_user_auth)])
+app.include_router(media.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+
 
 # Global exception handling
 @app.exception_handler(Exception)

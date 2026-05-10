@@ -8,7 +8,7 @@ from sqlalchemy import func, desc as sql_desc, asc as sql_asc
 from passlib.context import CryptContext
 
 from database.models import Tenant, TenantSwitch, DetectionResult
-from utils.user import generate_api_key
+from utils.user import new_api_key
 from config import settings
 from utils.logger import setup_logger
 
@@ -109,7 +109,7 @@ class AdminService:
     
     def _generate_api_key(self) -> str:
         """Generate unique API key (prefix: sk-xxai-)"""
-        return generate_api_key()
+        return new_api_key()
     
     def is_super_admin(self, tenant: Tenant) -> bool:
         """Check if tenant is super admin (based on database field or .env configured email)"""

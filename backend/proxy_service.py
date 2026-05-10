@@ -21,6 +21,7 @@ from config import settings
 from routers import proxy_api, gateway_integration_api, model_direct_access
 from services.async_logger import async_detection_logger
 from utils.logger import setup_logger
+from utils.request_headers import read_external_app_id
 
 # Set security verification (auto_error=False to allow manual handling)
 security = HTTPBearer(auto_error=False)
@@ -28,7 +29,7 @@ security = HTTPBearer(auto_error=False)
 # Import concurrent control middleware
 from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware
 
-class AuthContextMiddleware(BaseHTTPMiddleware):
+class AuthCtxMiddleware(BaseHTTPMiddleware):
     """Authentication context middleware - proxy service version"""
 
     async def dispatch(self, request: Request, call_next):
@@ -49,8 +50,8 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
                 if token:
                     try:
-                        # Pass request to access X-OG-Application-ID header for auto-discovery
-                        auth_context = await self._get_auth_context(token, request)
+                        # Pass request so auto-discovery can read the application header aliases.
+                        auth_context = await self._load_auth_ctx(token, request)
                         request.state.auth_context = auth_context
                     except Exception as e:
                         logger.warning(f"Auth context resolution failed: {e}")
@@ -63,13 +64,13 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
-    async def _get_auth_context(self, token: str, request: Request = None):
+    async def _load_auth_ctx(self, token: str, request: Request = None):
         """Get authentication context (proxy service with application support and auto-discovery)"""
         from utils.auth_cache import auth_cache
         from utils.auth import verify_token
 
         # Get external app ID from header for auto-discovery (don't cache with external app ID as it creates unique apps)
-        external_app_id = request.headers.get('X-OG-Application-ID') if request else None
+        external_app_id = read_external_app_id(request.headers) if request else None
 
         # Check cache (only if no external app ID - external app ID requests create new apps)
         if not external_app_id:
@@ -118,19 +119,19 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
             try:
                 from database.connection import get_admin_db_session
                 from database.models import Application
-                from utils.user import get_user_by_api_key, get_application_by_api_key, get_or_create_application_by_external_id
+                from utils.user import ensure_app_for_external_id, find_app_by_key, find_tenant_by_key
 
                 db = get_admin_db_session()
                 try:
                     # API key verification
-                    # When X-OG-Application-ID header is present, prioritize tenant API key for auto-discovery
+                    # When an external application header is present, prioritize tenant API key for auto-discovery.
                     # This allows the same key to work both ways: as application key (normal) or tenant key (with header)
                     if external_app_id:
                         # Auto-discovery mode: check tenant API key FIRST
-                        user = get_user_by_api_key(db, token)
+                        user = find_tenant_by_key(db, token)
                         if user:
                             # Auto-discovery mode: get or create application by external app ID
-                            app_info = get_or_create_application_by_external_id(db, str(user.id), external_app_id)
+                            app_info = ensure_app_for_external_id(db, str(user.id), external_app_id)
                             if app_info:
                                 auth_context = {
                                     "type": "tenant_api_key_with_consumer",
@@ -146,7 +147,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                                 }
                     else:
                         # Normal mode: check application API key first (new multi-application support)
-                        app_data = get_application_by_api_key(db, token)
+                        app_data = find_app_by_key(db, token)
                         if app_data:
                             auth_context = {
                                 "type": "api_key",
@@ -160,7 +161,7 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
                             }
                         else:
                             # Fallback to tenant API key (backward compatible)
-                            user = get_user_by_api_key(db, token)
+                            user = find_tenant_by_key(db, token)
                             if user:
                                 # No external app ID - get first active application (backward compatible)
                                 first_app = db.query(Application).filter(
@@ -247,7 +248,7 @@ from middleware.rate_limit_middleware import RateLimitMiddleware
 app.add_middleware(RateLimitMiddleware)
 
 # Add authentication context middleware
-app.add_middleware(AuthContextMiddleware)
+app.add_middleware(AuthCtxMiddleware)
 
 # Configure CORS
 app.add_middleware(
@@ -292,7 +293,7 @@ async def health_check():
     }
 
 # User authentication function
-async def verify_user_auth(
+async def require_auth_ctx(
     credentials: HTTPAuthorizationCredentials = Security(security),
     request: Request = None,
 ):
@@ -306,11 +307,11 @@ async def verify_user_auth(
     raise HTTPException(status_code=401, detail="Invalid API key")
 
 # Register proxy routes - routes already contain /v1 prefix, no need to add again
-app.include_router(proxy_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(proxy_api.router, dependencies=[Depends(require_auth_ctx)])
 
 # Register gateway integration API (for third-party AI gateways like Higress, LiteLLM, Kong)
 # See docs/THIRD_PARTY_GATEWAY_INTEGRATION.md for full documentation
-app.include_router(gateway_integration_api.router, dependencies=[Depends(verify_user_auth)])
+app.include_router(gateway_integration_api.router, dependencies=[Depends(require_auth_ctx)])
 
 # Register direct model access API (uses its own authentication via model_api_key)
 app.include_router(model_direct_access.router, prefix="/v1")

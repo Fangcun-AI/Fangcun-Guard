@@ -31,15 +31,15 @@ from database.models import (
 from database.connection import get_db_session
 from utils.logger import setup_logger
 from utils.i18n_loader import get_translation
-from utils.bypass_token import generate_bypass_token, BYPASS_TOKEN_HEADER
+from utils.bypass_token import BYPASS_TOKEN_HEADER, make_bypass_token
 
 logger = setup_logger()
 
 # Shared cipher suite for API key encryption/decryption
 _cipher_suite = None
 
-def _get_cipher_suite() -> Fernet:
-    """Get or create the shared cipher suite"""
+def _cipher() -> Fernet:
+    """Return the shared cipher suite."""
     global _cipher_suite
     if _cipher_suite is None:
         from config import settings
@@ -70,7 +70,7 @@ class GatewayIntegrationService:
         self.db = db
         self.disposal_service = DataLeakageDisposalService(db)
 
-    def _get_language(self, tenant_id: Optional[str]) -> str:
+    def _lang(self, tenant_id: Optional[str]) -> str:
         """
         Get language preference for tenant.
         
@@ -110,7 +110,7 @@ class GatewayIntegrationService:
 
         try:
             # Get language preference for i18n messages
-            language = self._get_language(tenant_id)
+            language = self._lang(tenant_id)
 
             # 1. Check ban policy
             if user_id:
@@ -702,10 +702,10 @@ class GatewayIntegrationService:
         """
         Proxy request to private model and return the response.
 
-        This allows OG to directly forward requests to private models
+        This allows FangcunGuard to directly forward requests to private models
         instead of returning switch_private_model action for gateway to handle.
 
-        When the private model is also protected by OG, a bypass token is added
+        When the private model is also protected by FangcunGuard, a bypass token is added
         to the request headers to skip duplicate detection.
 
         Returns:
@@ -722,7 +722,7 @@ class GatewayIntegrationService:
             decrypted_key = ""
             if private_model.api_key_encrypted:
                 try:
-                    cipher = _get_cipher_suite()
+                    cipher = _cipher()
                     decrypted_key = cipher.decrypt(private_model.api_key_encrypted.encode()).decode()
                 except Exception as e:
                     logger.error(f"[{request_id}] Failed to decrypt private model API key: {e}")
@@ -774,8 +774,8 @@ class GatewayIntegrationService:
             if decrypted_key:
                 headers["Authorization"] = f"Bearer {decrypted_key}"
 
-            # Add bypass token to skip duplicate detection when private model is also OG-protected
-            bypass_token = generate_bypass_token(tenant_id, request_id)
+            # Add bypass token to skip duplicate detection when the upstream model is FangcunGuard-protected
+            bypass_token = make_bypass_token(tenant_id, request_id)
             headers[BYPASS_TOKEN_HEADER] = bypass_token
             logger.info(f"[{request_id}] Added bypass token for private model request")
 
@@ -783,7 +783,7 @@ class GatewayIntegrationService:
 
             # Send request to private model (non-streaming only for now)
             if stream:
-                # For streaming, we can't easily proxy through OG
+                # For streaming, we can't easily proxy through FangcunGuard
                 # Return None to fallback to switch_private_model action
                 logger.warning(f"[{request_id}] Streaming not supported for private model proxy, falling back")
                 return None
@@ -838,14 +838,14 @@ class GatewayIntegrationService:
         decrypted_key = ""
         try:
             if private_model.api_key_encrypted:
-                cipher = _get_cipher_suite()
+                cipher = _cipher()
                 decrypted_key = cipher.decrypt(private_model.api_key_encrypted.encode()).decode()
         except Exception as e:
             logger.error(f"Failed to decrypt private model API key: {e}")
             decrypted_key = ""
 
         # Generate bypass token for the gateway to add when forwarding to private model
-        bypass_token = generate_bypass_token(tenant_id, request_id)
+        bypass_token = make_bypass_token(tenant_id, request_id)
 
         return {
             "action": "switch_private_model",
@@ -863,6 +863,6 @@ class GatewayIntegrationService:
         }
 
 
-def get_gateway_integration_service(db: Session) -> GatewayIntegrationService:
-    """Factory function to get gateway integration service"""
+def build_gateway_service(db: Session) -> GatewayIntegrationService:
+    """Build a gateway-integration service instance."""
     return GatewayIntegrationService(db)
