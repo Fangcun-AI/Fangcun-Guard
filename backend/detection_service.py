@@ -3,327 +3,185 @@
 Detection service - high-concurrency guardrail detection API
 Specialized for /v1/guardrails detection requests, optimized for high concurrency performance
 """
-from fastapi import FastAPI, HTTPException, Depends, Security, Request
-from contextlib import asynccontextmanager
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-import uvicorn
-import os
-import uuid
-from pathlib import Path
+from fastapi import FastAPI, HTTPException, Depends, Security, Request  # fcg-rewrite
+from contextlib import asynccontextmanager  # fcg-rewrite
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials  # fcg-rewrite
+from fastapi.middleware.cors import CORSMiddleware  # fcg-rewrite
+from fastapi.responses import JSONResponse  # fcg-rewrite
+import uvicorn  # fcg-rewrite
+import os  # fcg-rewrite
 
-from config import settings
-from database.connection import init_db, create_detection_engine
-from routers import detection_guardrails, dify_moderation, billing, model_direct_access, content_scan
-from services.async_logger import async_detection_logger
-from utils.logger import setup_logger
-from utils.request_headers import read_external_app_id
+from config import settings  # fcg-rewrite
+from database.connection import get_detection_db_session, init_db, create_detection_engine  # fcg-rewrite
+from guard_runtime.routes import content_scan_routes, detection_api_routes, dify_extension_routes  # fcg-rewrite
+from middleware.request_identity import RequestIdentityMiddleware  # fcg-rewrite
+from platform_shared.routes import appeal_public_routes, billing_routes, direct_model_routes  # fcg-rewrite
+from services.async_logger import async_detection_logger  # fcg-rewrite
+from services.request_identity_service import RequestIdentityPolicy, RequestIdentityResolver  # fcg-rewrite
+from utils.logger import setup_logger  # fcg-rewrite
 
 # Set security verification (auto_error=False to allow manual handling)
-security = HTTPBearer(auto_error=False)
+security = HTTPBearer(auto_error=False)  # fcg-rewrite
 
 # Import concurrent control middleware
-from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware
+from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware  # fcg-rewrite
 
-class AuthCtxMiddleware(BaseHTTPMiddleware):
-    """Authentication context middleware - detection service version (simplified version)"""
-
-    async def dispatch(self, request: Request, call_next):
-        # Only handle detection API routes (guardrails and dify moderation)
-        if request.url.path.startswith('/v1/guardrails') or request.url.path.startswith('/v1/dify') or request.url.path.startswith('/v1/scan/'):
-            auth_header = request.headers.get('authorization')
-
-            if auth_header:
-                # Only accept "Bearer token" format
-                if auth_header.startswith('Bearer '):
-                    token = auth_header.split(' ')[1]
-                else:
-                    # Invalid format - must include Bearer prefix
-                    token = None
-
-                if token:
-                    try:
-                        # Pass request so auto-discovery can read the application header aliases.
-                        auth_context = await self._load_auth_ctx(token, request)
-                        request.state.auth_context = auth_context
-                    except Exception as e:
-                        logger.warning(f"Auth context resolution failed: {e}")
-                        request.state.auth_context = None
-                else:
-                    request.state.auth_context = None
-            else:
-                request.state.auth_context = None
-
-        response = await call_next(request)
-        return response
-
-    async def _load_auth_ctx(self, token: str, request: Request = None):
-        """Get authentication context (optimized version with application support and auto-discovery)"""
-        from utils.auth_cache import auth_cache
-
-        # Get external app ID from header for auto-discovery (don't cache with external app ID as it creates unique apps)
-        external_app_id = read_external_app_id(request.headers) if request else None
-
-        # Check cache (only if no external app ID - external app ID requests create new apps)
-        if not external_app_id:
-            cached_auth = auth_cache.get(token)
-            if cached_auth:
-                return cached_auth
-
-        # Cache miss or external app ID present, verify token
-        from database.connection import get_detection_db_session
-        from database.models import Tenant, Application
-        from utils.user import ensure_app_for_external_id, find_app_by_key, find_tenant_by_key
-        from utils.auth import verify_token
-
-        db = get_detection_db_session()
-        try:
-            auth_context = None
-
-            # JWT verification (for admin/tenant login via frontend)
-            try:
-                user_data = verify_token(token)
-                raw_tenant_id = user_data.get('tenant_id') or user_data.get('sub')
-
-                if isinstance(raw_tenant_id, str):
-                    try:
-                        tenant_uuid = uuid.UUID(raw_tenant_id)
-                        user = db.query(Tenant).filter(Tenant.id == tenant_uuid).first()
-                        if user:
-                            # For JWT auth, get the first active application (or None if no apps exist yet)
-                            first_app = db.query(Application).filter(
-                                Application.tenant_id == tenant_uuid,
-                                Application.is_active == True
-                            ).first()
-
-                            auth_context = {
-                                "type": "jwt",
-                                "data": {
-                                    "tenant_id": str(user.id),
-                                    "email": user.email,
-                                    "application_id": str(first_app.id) if first_app else None,
-                                    "application_name": first_app.name if first_app else None
-                                }
-                            }
-                    except ValueError:
-                        pass
-            except (ValueError, KeyError, Exception) as jwt_err:
-                # JWT verification failed, try API key verification
-                logger.debug(f"JWT verification failed, trying API key: {jwt_err}")
-                # When an external application header is present, prioritize tenant API key for auto-discovery.
-                # This allows the same key to work both ways: as application key (normal) or tenant key (with header)
-                if external_app_id:
-                    # Auto-discovery mode: check tenant API key FIRST
-                    user = find_tenant_by_key(db, token)
-                    if user:
-                        # Auto-discovery mode: get or create application by external app ID
-                        app_info = ensure_app_for_external_id(db, str(user.id), external_app_id)
-                        if app_info:
-                            auth_context = {
-                                "type": "tenant_api_key_with_consumer",
-                                "data": {
-                                    "tenant_id": str(user.id),
-                                    "email": user.email,
-                                    "api_key": user.api_key,
-                                    "application_id": app_info["application_id"],
-                                    "application_name": app_info["application_name"],
-                                    "is_auto_discovered": app_info["is_new"],
-                                    "external_app_id": external_app_id
-                                }
-                            }
-                else:
-                    # Normal mode: check application API key first (new multi-application support)
-                    app_data = find_app_by_key(db, token)
-                    if app_data:
-                        auth_context = {
-                            "type": "api_key",
-                            "data": {
-                                "tenant_id": app_data["tenant_id"],
-                                "email": app_data["tenant_email"],
-                                "application_id": app_data["application_id"],
-                                "application_name": app_data["application_name"],
-                                "api_key": app_data["api_key"]
-                            }
-                        }
-                    else:
-                        # Fallback to tenant API key verification (backward compatible)
-                        user = find_tenant_by_key(db, token)
-                        if user:
-                            # No external app ID - get first active application (backward compatible)
-                            first_app = db.query(Application).filter(
-                                Application.tenant_id == user.id,
-                                Application.is_active == True
-                            ).first()
-
-                            auth_context = {
-                                "type": "api_key_legacy",
-                                "data": {
-                                    "tenant_id": str(user.id),
-                                    "email": user.email,
-                                    "api_key": user.api_key,
-                                    "application_id": str(first_app.id) if first_app else None,
-                                    "application_name": first_app.name if first_app else None
-                                }
-                            }
-
-            # Cache authentication result (only if no external app ID - external app ID creates unique contexts)
-            if auth_context and not external_app_id:
-                auth_cache.set(token, auth_context)
-
-            return auth_context
-
-        finally:
-            db.close()
+detection_identity_resolver = RequestIdentityResolver(  # fcg-rewrite
+    session_factory=get_detection_db_session,  # fcg-rewrite
+    policy=RequestIdentityPolicy(  # fcg-rewrite
+        route_prefixes=("/v1/guardrails", "/v1/dify", "/v1/scan/"),  # fcg-rewrite
+        allow_direct_api_keys=False,  # fcg-rewrite
+        require_tenant_record_for_jwt=True,  # fcg-rewrite
+    ),
+    service_name="detection",  # fcg-rewrite
+)
 
 # Create FastAPI application
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+@asynccontextmanager  # fcg-rewrite
+async def detection_lifespan_handler(app: FastAPI):  # fcg-rewrite
     # Startup phase
-    os.makedirs(settings.data_dir, exist_ok=True)
-    os.makedirs(settings.log_dir, exist_ok=True)
-    os.makedirs(settings.detection_log_dir, exist_ok=True)
+    os.makedirs(settings.data_dir, exist_ok=True)  # fcg-rewrite
+    os.makedirs(settings.log_dir, exist_ok=True)  # fcg-rewrite
+    os.makedirs(settings.detection_log_dir, exist_ok=True)  # fcg-rewrite
 
     # Initialize database (detection service does not need full initialization)
-    await init_db(minimal=True)
+    await init_db(minimal=True)  # fcg-rewrite
 
     # Start asynchronous logging service
-    await async_detection_logger.start()
+    await async_detection_logger.start()  # fcg-rewrite
 
     # Initialize plugin system (detection service uses dispatch_hook for detection phase)
-    from plugins.manager import plugin_manager
-    await plugin_manager.load_and_initialize(app=None, app_context={"service": "detection"})
+    from plugins.manager import plugin_manager  # fcg-rewrite
+    await plugin_manager.bootstrap_plugins(app=None, app_context={"service": "detection"})  # fcg-rewrite
 
-    logger.info(f"{settings.app_name} Detection Service started")
-    logger.info(f"Detection API URL: {settings.guardrails_model_api_url}")
-    logger.info("Detection service optimized for high concurrency")
+    logger.info(f"{settings.app_name} Detection Service started")  # fcg-rewrite
+    logger.info(f"Detection API URL: {settings.guardrails_model_api_url}")  # fcg-rewrite
+    logger.info("Detection service optimized for high concurrency")  # fcg-rewrite
     
     try:
         yield
-    finally:
+    finally:  # fcg-rewrite
         # Shutdown phase
-        await async_detection_logger.stop()
-        from services.model_service import model_service
-        await model_service.close()
-        logger.info("Detection service shutdown completed")
+        await async_detection_logger.stop()  # fcg-rewrite
+        from services.model_service import model_service  # fcg-rewrite
+        await model_service.close()  # fcg-rewrite
+        logger.info("Detection service shutdown completed")  # fcg-rewrite
 
-app = FastAPI(
-    title=f"{settings.app_name} - Detection Service",
-    version=settings.app_version,
-    description="FangcunGuard detection service - high-concurrency detection API",
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
-    lifespan=lifespan,
+app = FastAPI(  # fcg-rewrite
+    title=f"{settings.app_name} - Detection Service",  # fcg-rewrite
+    version=settings.app_version,  # fcg-rewrite
+    description="FangcunGuard detection service - high-concurrency detection API",  # fcg-rewrite
+    docs_url="/docs" if settings.debug else None,  # fcg-rewrite
+    redoc_url="/redoc" if settings.debug else None,  # fcg-rewrite
+    lifespan=detection_lifespan_handler,  # fcg-rewrite
 )
 
 # Add concurrent control middleware (highest priority, added last)
-app.add_middleware(ConcurrentLimitMiddleware, service_type="detection", max_concurrent=settings.detection_max_concurrent_requests)
+app.add_middleware(ConcurrentLimitMiddleware, service_type="detection", max_concurrent=settings.detection_max_concurrent_requests)  # fcg-rewrite
 
 # Add rate limit middleware (RPS limiting)
-from middleware.rate_limit_middleware import RateLimitMiddleware
-app.add_middleware(RateLimitMiddleware)
+from middleware.rate_limit_middleware import RateLimitMiddleware  # fcg-rewrite
+app.add_middleware(RateLimitMiddleware)  # fcg-rewrite
 
 # Add billing middleware (monthly quota limiting)
-from middleware.billing_middleware import BillingMiddleware
-app.add_middleware(BillingMiddleware)
+from middleware.billing_middleware import BillingMiddleware  # fcg-rewrite
+app.add_middleware(BillingMiddleware)  # fcg-rewrite
 
 # Add authentication context middleware
-app.add_middleware(AuthCtxMiddleware)
+app.add_middleware(RequestIdentityMiddleware, resolver=detection_identity_resolver)  # fcg-rewrite
 
 # Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+app.add_middleware(  # fcg-rewrite
+    CORSMiddleware,  # fcg-rewrite
+    allow_origins=["*"],  # fcg-rewrite
+    allow_credentials=True,  # fcg-rewrite
+    allow_methods=["GET", "POST"],  # fcg-rewrite
+    allow_headers=["*"],  # fcg-rewrite
 )
 
 # Set log
-logger = setup_logger()
+logger = setup_logger()  # fcg-rewrite
 
-@app.get("/")
-async def root():
+@app.get("/")  # fcg-rewrite
+async def detection_root_info():  # fcg-rewrite
     """Root path"""
-    return {
-        "name": f"{settings.app_name} - Detection Service",
-        "version": settings.app_version,
-        "status": "running",
-        "service_type": "detection",
-        "model_api_url": settings.guardrails_model_api_url,
-        "workers": settings.detection_uvicorn_workers,
-        "max_concurrent": settings.detection_max_concurrent_requests
+    return {  # fcg-rewrite
+        "name": f"{settings.app_name} - Detection Service",  # fcg-rewrite
+        "version": settings.app_version,  # fcg-rewrite
+        "status": "running",  # fcg-rewrite
+        "service_type": "detection",  # fcg-rewrite
+        "model_api_url": settings.guardrails_model_api_url,  # fcg-rewrite
+        "workers": settings.detection_uvicorn_workers,  # fcg-rewrite
+        "max_concurrent": settings.detection_max_concurrent_requests  # fcg-rewrite
     }
 
-@app.get("/health")
-async def health_check():
+@app.get("/health")  # fcg-rewrite
+async def detection_health_probe():  # fcg-rewrite
     """Health check"""
-    return {
-        "status": "healthy",
-        "version": settings.app_version,
-        "service": "detection"
+    return {  # fcg-rewrite
+        "status": "healthy",  # fcg-rewrite
+        "version": settings.app_version,  # fcg-rewrite
+        "service": "detection"  # fcg-rewrite
     }
 
-@app.get("/metrics")
-async def metrics():
+@app.get("/metrics")  # fcg-rewrite
+async def render_detection_metrics():  # fcg-rewrite
     """Prometheus-compatible metrics endpoint"""
-    from services.model_service import model_service
-    cb = model_service._circuit_breaker
-    lines = [
-        '# HELP model_circuit_breaker_state Circuit breaker state (0=closed, 1=open)',
-        f'model_circuit_breaker_state {1 if cb.is_open else 0}',
-        '# HELP model_circuit_breaker_failures Consecutive failure count',
-        f'model_circuit_breaker_failures {cb._failure_count}',
-        '# HELP detection_service_info Service info',
-        f'detection_service_info{{version="{settings.app_version}",workers="{settings.detection_uvicorn_workers}"}} 1',
+    from services.model_service import model_service  # fcg-rewrite
+    cb = model_service._circuit_breaker  # fcg-rewrite
+    lines = [  # fcg-rewrite
+        '# HELP model_circuit_breaker_state Circuit breaker state (0=closed, 1=open)',  # fcg-rewrite
+        f'model_circuit_breaker_state {1 if cb.is_open else 0}',  # fcg-rewrite
+        '# HELP model_circuit_breaker_failures Consecutive failure count',  # fcg-rewrite
+        f'model_circuit_breaker_failures {cb._failure_count}',  # fcg-rewrite
+        '# HELP detection_service_info Service info',  # fcg-rewrite
+        f'detection_service_info{{version="{settings.app_version}",workers="{settings.detection_uvicorn_workers}"}} 1',  # fcg-rewrite
     ]
-    from starlette.responses import Response
-    return Response(content="\n".join(lines) + "\n", media_type="text/plain; charset=utf-8")
+    from starlette.responses import Response  # fcg-rewrite
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; charset=utf-8")  # fcg-rewrite
 
 # User authentication function (simplified version)
-async def require_auth_ctx(
-    credentials: HTTPAuthorizationCredentials = Security(security),
-    request: Request = None,
+async def require_authenticated_context(  # fcg-rewrite
+    credentials: HTTPAuthorizationCredentials = Security(security),  # fcg-rewrite
+    request: Request = None,  # fcg-rewrite
 ):
     """Verify user authentication (detection service专用)"""
     # Use middleware parsed authentication context
-    if request is not None:
-        auth_ctx = getattr(request.state, 'auth_context', None)
-        if auth_ctx:
-            return auth_ctx
+    if request is not None:  # fcg-rewrite
+        request_context = getattr(request.state, 'auth_context', None)  # fcg-rewrite
+        if request_context:  # fcg-rewrite
+            return request_context  # fcg-rewrite
 
     # If middleware didn't set auth_context, check if it's because of missing/invalid auth
-    raise HTTPException(status_code=401, detail="Not authenticated")
+    raise HTTPException(status_code=401, detail="Not authenticated")  # fcg-rewrite
 
 # Register detection routes (special version)
-app.include_router(detection_guardrails.router, prefix="/v1", dependencies=[Depends(require_auth_ctx)])
-app.include_router(dify_moderation.router, prefix="/v1", dependencies=[Depends(require_auth_ctx)])  # Dify API-based Extension
-app.include_router(billing.router, dependencies=[Depends(require_auth_ctx)])  # Billing APIs
-app.include_router(content_scan.router, prefix="/v1", dependencies=[Depends(require_auth_ctx)])  # Content Scan APIs
+app.include_router(detection_api_routes.router, prefix="/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
+app.include_router(dify_extension_routes.router, prefix="/v1", dependencies=[Depends(require_authenticated_context)])  # Dify API-based Extension  # fcg-rewrite
+app.include_router(billing_routes.router, dependencies=[Depends(require_authenticated_context)])  # Billing APIs  # fcg-rewrite
+app.include_router(content_scan_routes.router, prefix="/v1", dependencies=[Depends(require_authenticated_context)])  # Content Scan APIs  # fcg-rewrite
 
-# Register direct model access routes (no dependency on require_auth_ctx, uses its own auth)
-app.include_router(model_direct_access.router, prefix="/v1")  # Direct Model Access (auth handled internally)
+# Register direct model access routes (uses its own auth and does not depend on the shared request-context guard)
+app.include_router(direct_model_routes.router, prefix="/v1")  # Direct Model Access (auth handled internally)  # fcg-rewrite
 
 # Register appeal routes (public endpoint, no authentication required)
-from routers import appeal_router
-app.include_router(appeal_router.router)  # Appeal processing (public URL contains request_id as token)
+app.include_router(appeal_public_routes.router)  # Appeal processing (public URL contains request_id as token)  # fcg-rewrite
 
 # Global exception handling
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    logger.error(f"Detection service exception: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Detection service internal error"}
+@app.exception_handler(Exception)  # fcg-rewrite
+async def handle_detection_exception(request, exc):  # fcg-rewrite
+    logger.error(f"Detection service exception: {exc}")  # fcg-rewrite
+    return JSONResponse(  # fcg-rewrite
+        status_code=500,  # fcg-rewrite
+        content={"detail": "Detection service internal error"}  # fcg-rewrite
     )
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "detection_service:app",
-        host=settings.host,
-        port=settings.detection_port,
-        reload=settings.debug,
-        log_level=settings.log_level.lower(),
-        workers=settings.detection_uvicorn_workers if not settings.debug else 1
+if __name__ == "__main__":  # fcg-rewrite
+    uvicorn.run(  # fcg-rewrite
+        "detection_service:app",  # fcg-rewrite
+        host=settings.host,  # fcg-rewrite
+        port=settings.detection_port,  # fcg-rewrite
+        reload=settings.debug,  # fcg-rewrite
+        log_level=settings.log_level.lower(),  # fcg-rewrite
+        workers=settings.detection_uvicorn_workers if not settings.debug else 1  # fcg-rewrite
     )

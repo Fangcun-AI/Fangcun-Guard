@@ -3,334 +3,178 @@
 Reverse proxy service - OpenAI compatible proxy guardrails service
 Provide complete OpenAI API compatible layer, support multi-model configuration and security detection
 """
-from fastapi import FastAPI, HTTPException, Depends, Security, Request
-from contextlib import asynccontextmanager
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.gzip import GZipMiddleware
-import uvicorn
-import os
-import uuid
-from pathlib import Path
-import asyncio
+from fastapi import FastAPI, HTTPException, Depends, Security, Request  # fcg-rewrite
+from contextlib import asynccontextmanager  # fcg-rewrite
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials  # fcg-rewrite
+from fastapi.middleware.cors import CORSMiddleware  # fcg-rewrite
+from fastapi.responses import JSONResponse  # fcg-rewrite
+from starlette.middleware.gzip import GZipMiddleware  # fcg-rewrite
+import uvicorn  # fcg-rewrite
+import os  # fcg-rewrite
 
-from config import settings
+from config import settings  # fcg-rewrite
 # Import complete proxy service implementation
-from routers import proxy_api, gateway_integration_api, model_direct_access
-from services.async_logger import async_detection_logger
-from utils.logger import setup_logger
-from utils.request_headers import read_external_app_id
+from database.connection import get_admin_db_session  # fcg-rewrite
+from middleware.request_identity import RequestIdentityMiddleware  # fcg-rewrite
+from openai_edge.routes import gateway_bridge_routes, openai_compat_routes  # fcg-rewrite
+from platform_shared.routes import direct_model_routes  # fcg-rewrite
+from services.async_logger import async_detection_logger  # fcg-rewrite
+from services.request_identity_service import RequestIdentityPolicy, RequestIdentityResolver  # fcg-rewrite
+from utils.logger import setup_logger  # fcg-rewrite
 
 # Set security verification (auto_error=False to allow manual handling)
-security = HTTPBearer(auto_error=False)
+security = HTTPBearer(auto_error=False)  # fcg-rewrite
 
 # Import concurrent control middleware
-from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware
+from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware  # fcg-rewrite
 
-class AuthCtxMiddleware(BaseHTTPMiddleware):
-    """Authentication context middleware - proxy service version"""
-
-    async def dispatch(self, request: Request, call_next):
-        # Handle OpenAI compatible API routes
-        if request.url.path.startswith('/v1/'):
-            auth_header = request.headers.get('authorization')
-
-            if auth_header:
-                # Automatically handle both "Bearer token" and direct "token" formats
-                if auth_header.startswith('Bearer '):
-                    token = auth_header.split(' ')[1]
-                elif auth_header.startswith('sk-xxai-'):
-                    # Direct API key without "Bearer " prefix
-                    token = auth_header
-                else:
-                    # Invalid format
-                    token = None
-
-                if token:
-                    try:
-                        # Pass request so auto-discovery can read the application header aliases.
-                        auth_context = await self._load_auth_ctx(token, request)
-                        request.state.auth_context = auth_context
-                    except Exception as e:
-                        logger.warning(f"Auth context resolution failed: {e}")
-                        request.state.auth_context = None
-                else:
-                    request.state.auth_context = None
-            else:
-                request.state.auth_context = None
-
-        response = await call_next(request)
-        return response
-
-    async def _load_auth_ctx(self, token: str, request: Request = None):
-        """Get authentication context (proxy service with application support and auto-discovery)"""
-        from utils.auth_cache import auth_cache
-        from utils.auth import verify_token
-
-        # Get external app ID from header for auto-discovery (don't cache with external app ID as it creates unique apps)
-        external_app_id = read_external_app_id(request.headers) if request else None
-
-        # Check cache (only if no external app ID - external app ID requests create new apps)
-        if not external_app_id:
-            cached_auth = auth_cache.get(token)
-            if cached_auth:
-                return cached_auth
-
-        auth_context = None
-
-        try:
-            # First try JWT verification
-            user_data = verify_token(token)
-            raw_tenant_id = user_data.get('tenant_id') or user_data.get('sub')
-
-            if isinstance(raw_tenant_id, str):
-                try:
-                    tenant_uuid = uuid.UUID(raw_tenant_id)
-
-                    # For JWT auth, get the first active application
-                    from database.connection import get_admin_db_session
-                    from database.models import Application
-
-                    db = get_admin_db_session()
-                    try:
-                        first_app = db.query(Application).filter(
-                            Application.tenant_id == tenant_uuid,
-                            Application.is_active == True
-                        ).first()
-
-                        auth_context = {
-                            "type": "jwt",
-                            "data": {
-                                "tenant_id": raw_tenant_id,
-                                "email": user_data.get('email', 'unknown'),
-                                "application_id": str(first_app.id) if first_app else None,
-                                "application_name": first_app.name if first_app else None
-                            }
-                        }
-                    finally:
-                        db.close()
-                except ValueError:
-                    pass
-        except (ValueError, KeyError, Exception) as jwt_err:
-            # JWT verification failed, try API key verification
-            logger.debug(f"JWT verification failed, trying API key: {jwt_err}")
-            try:
-                from database.connection import get_admin_db_session
-                from database.models import Application
-                from utils.user import ensure_app_for_external_id, find_app_by_key, find_tenant_by_key
-
-                db = get_admin_db_session()
-                try:
-                    # API key verification
-                    # When an external application header is present, prioritize tenant API key for auto-discovery.
-                    # This allows the same key to work both ways: as application key (normal) or tenant key (with header)
-                    if external_app_id:
-                        # Auto-discovery mode: check tenant API key FIRST
-                        user = find_tenant_by_key(db, token)
-                        if user:
-                            # Auto-discovery mode: get or create application by external app ID
-                            app_info = ensure_app_for_external_id(db, str(user.id), external_app_id)
-                            if app_info:
-                                auth_context = {
-                                    "type": "tenant_api_key_with_consumer",
-                                    "data": {
-                                        "tenant_id": str(user.id),
-                                        "email": user.email,
-                                        "api_key": user.api_key,
-                                        "application_id": app_info["application_id"],
-                                        "application_name": app_info["application_name"],
-                                        "is_auto_discovered": app_info["is_new"],
-                                        "external_app_id": external_app_id
-                                    }
-                                }
-                    else:
-                        # Normal mode: check application API key first (new multi-application support)
-                        app_data = find_app_by_key(db, token)
-                        if app_data:
-                            auth_context = {
-                                "type": "api_key",
-                                "data": {
-                                    "tenant_id": app_data["tenant_id"],
-                                    "email": app_data["tenant_email"],
-                                    "application_id": app_data["application_id"],
-                                    "application_name": app_data["application_name"],
-                                    "api_key": app_data["api_key"]
-                                }
-                            }
-                        else:
-                            # Fallback to tenant API key (backward compatible)
-                            user = find_tenant_by_key(db, token)
-                            if user:
-                                # No external app ID - get first active application (backward compatible)
-                                first_app = db.query(Application).filter(
-                                    Application.tenant_id == user.id,
-                                    Application.is_active == True
-                                ).first()
-
-                                auth_context = {
-                                    "type": "api_key_legacy",
-                                    "data": {
-                                        "tenant_id": str(user.id),
-                                        "email": user.email,
-                                        "api_key": user.api_key,
-                                        "application_id": str(first_app.id) if first_app else None,
-                                        "application_name": first_app.name if first_app else None
-                                    }
-                                }
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.error(f"API key verification failed: {e}")
-
-        # If all verification fails, do not create anonymous user context
-        # This will trigger a 401 error, which is expected behavior for the API
-
-        # Cache authentication result (only if no external app ID - external app ID creates unique contexts)
-        if auth_context and not external_app_id:
-            auth_cache.set(token, auth_context)
-
-        return auth_context
+proxy_identity_resolver = RequestIdentityResolver(  # fcg-rewrite
+    session_factory=get_admin_db_session,  # fcg-rewrite
+    policy=RequestIdentityPolicy(  # fcg-rewrite
+        route_prefixes=("/v1/",),  # fcg-rewrite
+        allow_direct_api_keys=True,  # fcg-rewrite
+    ),
+    service_name="proxy",  # fcg-rewrite
+)
 
 # Create FastAPI application
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+@asynccontextmanager  # fcg-rewrite
+async def proxy_service_lifespan(app: FastAPI):  # fcg-rewrite
     # Startup phase
-    os.makedirs(settings.data_dir, exist_ok=True)
-    os.makedirs(settings.log_dir, exist_ok=True)
-    os.makedirs(settings.detection_log_dir, exist_ok=True)
+    os.makedirs(settings.data_dir, exist_ok=True)  # fcg-rewrite
+    os.makedirs(settings.log_dir, exist_ok=True)  # fcg-rewrite
+    os.makedirs(settings.detection_log_dir, exist_ok=True)  # fcg-rewrite
 
     # Proxy service does not initialize database, focus on high concurrency proxy functionality
 
     # Start asynchronous log service
-    await async_detection_logger.start()
+    await async_detection_logger.start()  # fcg-rewrite
 
     # Initialize plugin system (proxy service uses dispatch_hook for input/output/stream_complete phases)
-    from plugins.manager import plugin_manager
-    await plugin_manager.load_and_initialize(app=None, app_context={"service": "proxy"})
+    from plugins.manager import plugin_manager  # fcg-rewrite
+    await plugin_manager.bootstrap_plugins(app=None, app_context={"service": "proxy"})  # fcg-rewrite
 
-    logger.info(f"{settings.app_name} Proxy Service started")
-    logger.info(f"Proxy API running on port {settings.proxy_port}")
-    logger.info("OpenAI-compatible proxy service with guardrails protection")
+    logger.info(f"{settings.app_name} Proxy Service started")  # fcg-rewrite
+    logger.info(f"Proxy API running on port {settings.proxy_port}")  # fcg-rewrite
+    logger.info("OpenAI-compatible proxy service with guardrails protection")  # fcg-rewrite
     
     try:
         yield
-    finally:
+    finally:  # fcg-rewrite
         # Shutdown phase
-        await async_detection_logger.stop()
-        from services.model_service import model_service
-        await model_service.close()
+        await async_detection_logger.stop()  # fcg-rewrite
+        from services.model_service import model_service  # fcg-rewrite
+        await model_service.close()  # fcg-rewrite
         
         # Close HTTP client connection pool
-        from services.proxy_service import proxy_service
-        await proxy_service.close()
+        from services.proxy_service import proxy_service  # fcg-rewrite
+        await proxy_service.close()  # fcg-rewrite
         
-        logger.info("Proxy service shutdown completed")
+        logger.info("Proxy service shutdown completed")  # fcg-rewrite
 
-app = FastAPI(
-    title=f"{settings.app_name} - Proxy Service",
-    version=settings.app_version,
-    description="FangcunGuard proxy service - OpenAI compatible reverse proxy",
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
-    lifespan=lifespan,
+app = FastAPI(  # fcg-rewrite
+    title=f"{settings.app_name} - Proxy Service",  # fcg-rewrite
+    version=settings.app_version,  # fcg-rewrite
+    description="FangcunGuard proxy service - OpenAI compatible reverse proxy",  # fcg-rewrite
+    docs_url="/docs" if settings.debug else None,  # fcg-rewrite
+    redoc_url="/redoc" if settings.debug else None,  # fcg-rewrite
+    lifespan=proxy_service_lifespan,  # fcg-rewrite
 )
 
 # Add concurrent control middleware (highest priority, last added)
-app.add_middleware(ConcurrentLimitMiddleware, service_type="proxy", max_concurrent=settings.proxy_max_concurrent_requests)
+app.add_middleware(ConcurrentLimitMiddleware, service_type="proxy", max_concurrent=settings.proxy_max_concurrent_requests)  # fcg-rewrite
 
 # Performance optimization middleware
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # fcg-rewrite
 
 # Add rate limiting middleware
-from middleware.rate_limit_middleware import RateLimitMiddleware  
-app.add_middleware(RateLimitMiddleware)
+from middleware.rate_limit_middleware import RateLimitMiddleware    # fcg-rewrite
+app.add_middleware(RateLimitMiddleware)  # fcg-rewrite
 
 # Add authentication context middleware
-app.add_middleware(AuthCtxMiddleware)
+app.add_middleware(RequestIdentityMiddleware, resolver=proxy_identity_resolver)  # fcg-rewrite
 
 # Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+app.add_middleware(  # fcg-rewrite
+    CORSMiddleware,  # fcg-rewrite
+    allow_origins=["*"],  # fcg-rewrite
+    allow_credentials=True,  # fcg-rewrite
+    allow_methods=["GET", "POST"],  # fcg-rewrite
+    allow_headers=["*"],  # fcg-rewrite
 )
 
 # Set log
-logger = setup_logger()
+logger = setup_logger()  # fcg-rewrite
 
-@app.get("/")
-async def root():
+@app.get("/")  # fcg-rewrite
+async def proxy_root_info():  # fcg-rewrite
     """Root path"""
-    return {
-        "name": f"{settings.app_name} - Proxy Service",
-        "version": settings.app_version,
-        "status": "running",
-        "service_type": "proxy",
-        "api_compatibility": "OpenAI v1",
-        "supported_endpoints": [
-            "POST /v1/chat/completions",
-            "POST /v1/completions", 
-            "GET /v1/models",
-            "POST /v1/model/chat/completions",
-            "POST /v1/model/embeddings"
+    return {  # fcg-rewrite
+        "name": f"{settings.app_name} - Proxy Service",  # fcg-rewrite
+        "version": settings.app_version,  # fcg-rewrite
+        "status": "running",  # fcg-rewrite
+        "service_type": "proxy",  # fcg-rewrite
+        "api_compatibility": "OpenAI v1",  # fcg-rewrite
+        "supported_endpoints": [  # fcg-rewrite
+            "POST /v1/chat/completions",  # fcg-rewrite
+            "POST /v1/completions",   # fcg-rewrite
+            "GET /v1/models",  # fcg-rewrite
+            "POST /v1/model/chat/completions",  # fcg-rewrite
+            "POST /v1/model/embeddings"  # fcg-rewrite
         ],
-        "base_url": f"http://localhost:{settings.proxy_port}",
-        "workers": settings.proxy_uvicorn_workers,
-        "max_concurrent": settings.proxy_max_concurrent_requests
+        "base_url": f"http://localhost:{settings.proxy_port}",  # fcg-rewrite
+        "workers": settings.proxy_uvicorn_workers,  # fcg-rewrite
+        "max_concurrent": settings.proxy_max_concurrent_requests  # fcg-rewrite
     }
 
-@app.get("/health")
-async def health_check():
+@app.get("/health")  # fcg-rewrite
+async def proxy_healthcheck():  # fcg-rewrite
     """Health check"""
-    return {
-        "status": "healthy", 
-        "version": settings.app_version,
-        "service": "proxy"
+    return {  # fcg-rewrite
+        "status": "healthy",   # fcg-rewrite
+        "version": settings.app_version,  # fcg-rewrite
+        "service": "proxy"  # fcg-rewrite
     }
 
 # User authentication function
-async def require_auth_ctx(
-    credentials: HTTPAuthorizationCredentials = Security(security),
-    request: Request = None,
+async def require_authenticated_context(  # fcg-rewrite
+    credentials: HTTPAuthorizationCredentials = Security(security),  # fcg-rewrite
+    request: Request = None,  # fcg-rewrite
 ):
     """Verify user authentication (proxy service专用)"""
     # Use middleware to parse authentication context
-    if request is not None:
-        auth_ctx = getattr(request.state, 'auth_context', None)
-        if auth_ctx:
-            return auth_ctx
+    if request is not None:  # fcg-rewrite
+        request_context = getattr(request.state, 'auth_context', None)  # fcg-rewrite
+        if request_context:  # fcg-rewrite
+            return request_context  # fcg-rewrite
     
-    raise HTTPException(status_code=401, detail="Invalid API key")
+    raise HTTPException(status_code=401, detail="Invalid API key")  # fcg-rewrite
 
 # Register proxy routes - routes already contain /v1 prefix, no need to add again
-app.include_router(proxy_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(openai_compat_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Register gateway integration API (for third-party AI gateways like Higress, LiteLLM, Kong)
 # See docs/THIRD_PARTY_GATEWAY_INTEGRATION.md for full documentation
-app.include_router(gateway_integration_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(gateway_bridge_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Register direct model access API (uses its own authentication via model_api_key)
-app.include_router(model_direct_access.router, prefix="/v1")
+app.include_router(direct_model_routes.router, prefix="/v1")  # fcg-rewrite
 
 # Global exception handling
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    logger.error(f"Proxy service exception: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"error": {"message": "Proxy service internal error", "type": "internal_error"}}
+@app.exception_handler(Exception)  # fcg-rewrite
+async def handle_proxy_exception(request, exc):  # fcg-rewrite
+    logger.error(f"Proxy service exception: {exc}")  # fcg-rewrite
+    return JSONResponse(  # fcg-rewrite
+        status_code=500,  # fcg-rewrite
+        content={"error": {"message": "Proxy service internal error", "type": "internal_error"}}  # fcg-rewrite
     )
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "proxy_service:app",
-        host=settings.host,
-        port=settings.proxy_port,
-        reload=settings.debug,
-        log_level=settings.log_level.lower(),
-        workers=settings.proxy_uvicorn_workers if not settings.debug else 1
+if __name__ == "__main__":  # fcg-rewrite
+    uvicorn.run(  # fcg-rewrite
+        "proxy_service:app",  # fcg-rewrite
+        host=settings.host,  # fcg-rewrite
+        port=settings.proxy_port,  # fcg-rewrite
+        reload=settings.debug,  # fcg-rewrite
+        log_level=settings.log_level.lower(),  # fcg-rewrite
+        workers=settings.proxy_uvicorn_workers if not settings.debug else 1  # fcg-rewrite
     )

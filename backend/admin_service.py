@@ -3,503 +3,276 @@
 Management service - low concurrency management platform API
 Specially handles /api/v1/* management interface requests, optimizing resource usage
 """
-from fastapi import FastAPI, HTTPException, Depends, Security, Request
-from contextlib import asynccontextmanager
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-import uvicorn
-import os
-import uuid
-from pathlib import Path
+from fastapi import FastAPI, HTTPException, Depends, Security, Request  # fcg-rewrite
+from contextlib import asynccontextmanager  # fcg-rewrite
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials  # fcg-rewrite
+from fastapi.middleware.cors import CORSMiddleware  # fcg-rewrite
+from fastapi.responses import JSONResponse  # fcg-rewrite
+import uvicorn  # fcg-rewrite
+import os  # fcg-rewrite
+from pathlib import Path  # fcg-rewrite
 
-from config import settings
-from database.connection import init_db, create_admin_engine
-from routers import dashboard, config_api, results, auth, user, sync, admin, online_test, proxy_management, concurrent_stats, media, billing, applications, scanner_packages_api, scanner_configs_api, custom_scanners_api, purchase_api, risk_config_api, payment_api, model_routes_api
-from utils.logger import setup_logger
-from services.admin_service import admin_service
+from config import settings  # fcg-rewrite
+from database.connection import get_admin_db_session, init_db, create_admin_engine  # fcg-rewrite
+from admin_console.routes import (  # fcg-rewrite
+    account_user_routes,  # fcg-rewrite
+    appeal_config_routes,  # fcg-rewrite
+    application_workspace_routes,  # fcg-rewrite
+    auth_session_routes,  # fcg-rewrite
+    ban_rules_routes,  # fcg-rewrite
+    concurrency_metrics_routes,  # fcg-rewrite
+    configuration_hub,  # fcg-rewrite
+    custom_scanner_routes,  # fcg-rewrite
+    data_leakage_policy_routes,  # fcg-rewrite
+    data_safety_routes,  # fcg-rewrite
+    gateway_policy_routes,  # fcg-rewrite
+    interactive_test_routes,  # fcg-rewrite
+    inspection_results,  # fcg-rewrite
+    media_asset_routes,  # fcg-rewrite
+    model_routing_routes,  # fcg-rewrite
+    ops_sync_routes,  # fcg-rewrite
+    overview_routes,  # fcg-rewrite
+    package_purchase_routes,  # fcg-rewrite
+    payment_gateway_routes,  # fcg-rewrite
+    plugin_catalog_routes,  # fcg-rewrite
+    risk_profile_routes,  # fcg-rewrite
+    scanner_catalog_routes,  # fcg-rewrite
+    scanner_config_routes,  # fcg-rewrite
+    system_admin_routes,  # fcg-rewrite
+    upstream_config_routes,  # fcg-rewrite
+)
+from middleware.request_identity import RequestIdentityMiddleware  # fcg-rewrite
+from platform_shared.routes import billing_routes  # fcg-rewrite
+from services.admin_request_identity import AdminRequestIdentityResolver  # fcg-rewrite
+from utils.logger import setup_logger  # fcg-rewrite
+from services.admin_service import admin_service  # fcg-rewrite
 
 # Set security verification
-security = HTTPBearer()
+security = HTTPBearer()  # fcg-rewrite
 
 # Import concurrent control middleware
-from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware
+from middleware.concurrent_limit_middleware import ConcurrentLimitMiddleware  # fcg-rewrite
 
-class AuthCtxMiddleware(BaseHTTPMiddleware):
-    """Authentication context middleware - management service version (full version)"""
-    
-    async def dispatch(self, request: Request, call_next):
-        # Handle management API routes
-        if request.url.path.startswith('/api/v1/'):
-            auth_header = request.headers.get('authorization')
-            switch_session = request.headers.get('x-switch-session')
-
-            if auth_header:
-                # Automatically handle both "Bearer token" and direct "token" formats
-                if auth_header.startswith('Bearer '):
-                    token = auth_header.split(' ')[1]
-                elif auth_header.startswith('sk-xxai-'):
-                    # Direct API key without "Bearer " prefix
-                    token = auth_header
-                else:
-                    # Invalid format
-                    token = None
-
-                if token:
-                    try:
-                        auth_context = await self._load_auth_ctx(token, switch_session)
-                        request.state.auth_context = auth_context
-                    except Exception as e:
-                        logger.error(f"Failed to get auth_context: {e}")
-                        request.state.auth_context = None
-                else:
-                    request.state.auth_context = None
-            else:
-                request.state.auth_context = None
-
-        response = await call_next(request)
-        return response
-    
-    async def _load_auth_ctx(self, token: str, switch_session: str = None):
-        """Get authentication context (full version, supports user switch and application)"""
-        from utils.auth_cache import auth_cache
-
-        # Generate cache key
-        cache_key = f"{token}:{switch_session or ''}"
-
-        # Check cache
-        cached_auth = auth_cache.get(cache_key)
-        if cached_auth:
-            return cached_auth
-
-        from database.connection import get_admin_db_session
-        from database.models import Tenant, Application
-        from utils.user import find_tenant_by_key, find_app_by_key
-        from utils.auth import verify_token
-
-        db = get_admin_db_session()
-        try:
-            auth_context = None
-
-            # JWT verification
-            try:
-                user_data = verify_token(token)
-                role = user_data.get('role')
-
-                if role == 'admin':
-                    subject_email = user_data.get('username') or user_data.get('sub')
-                    admin_user = db.query(Tenant).filter(Tenant.email == subject_email).first()
-                    if admin_user:
-                        # Get first active application for admin user
-                        first_app = db.query(Application).filter(
-                            Application.tenant_id == admin_user.id,
-                            Application.is_active == True
-                        ).first()
-
-                        auth_context = {
-                            "type": "jwt_admin",
-                            "data": {
-                                "tenant_id": str(admin_user.id),
-                                "email": admin_user.email,
-                                "is_super_admin": admin_service.is_super_admin(admin_user),
-                                "application_id": str(first_app.id) if first_app else None,
-                                "application_name": first_app.name if first_app else None
-                            }
-                        }
-                else:
-                    raw_tenant_id = user_data.get('tenant_id') or user_data.get('sub')
-                    tenant_uuid = None
-                    if isinstance(raw_tenant_id, str):
-                        try:
-                            tenant_uuid = uuid.UUID(raw_tenant_id)
-                        except ValueError:
-                            pass
-
-                    user = db.query(Tenant).filter(Tenant.id == tenant_uuid).first() if tenant_uuid else None
-                    if user:
-                        # Check user switch
-                        if switch_session and admin_service.is_super_admin(user):
-                            switched_user = admin_service.get_switched_user(db, switch_session)
-                            if switched_user:
-                                # Get first app for switched user
-                                first_app = db.query(Application).filter(
-                                    Application.tenant_id == switched_user.id,
-                                    Application.is_active == True
-                                ).first()
-
-                                auth_context = {
-                                    "type": "jwt_switched",
-                                    "data": {
-                                        "tenant_id": str(switched_user.id),
-                                        "email": switched_user.email,
-                                        "original_admin_id": str(user.id),
-                                        "original_admin_email": user.email,
-                                        "switch_session": switch_session,
-                                        "application_id": str(first_app.id) if first_app else None,
-                                        "application_name": first_app.name if first_app else None
-                                    }
-                                }
-
-                        if not auth_context:
-                            # Get first active application for this tenant
-                            first_app = db.query(Application).filter(
-                                Application.tenant_id == user.id,
-                                Application.is_active == True
-                            ).first()
-
-                            auth_context = {
-                                "type": "jwt",
-                                "data": {
-                                    "tenant_id": str(user.id),
-                                    "email": user.email,
-                                    "is_super_admin": admin_service.is_super_admin(user),
-                                    "application_id": str(first_app.id) if first_app else None,
-                                    "application_name": first_app.name if first_app else None
-                                }
-                            }
-            except:
-                # API key verification (try new multi-application support first)
-                app_data = find_app_by_key(db, token)
-                if app_data:
-                    # New API key format with application support
-                    auth_context = {
-                        "type": "api_key",
-                        "data": {
-                            "tenant_id": app_data["tenant_id"],
-                            "email": app_data["tenant_email"],
-                            "application_id": app_data["application_id"],
-                            "application_name": app_data["application_name"],
-                            "api_key": app_data["api_key"],
-                            "is_super_admin": False  # API keys are not admin
-                        }
-                    }
-                else:
-                    # Fallback to old API key (for backward compatibility)
-                    user = find_tenant_by_key(db, token)
-                    if user:
-                        # Check user switch
-                        if switch_session and admin_service.is_super_admin(user):
-                            switched_user = admin_service.get_switched_user(db, switch_session)
-                            if switched_user:
-                                # Get first app for switched user
-                                first_app = db.query(Application).filter(
-                                    Application.tenant_id == switched_user.id,
-                                    Application.is_active == True
-                                ).first()
-
-                                auth_context = {
-                                    "type": "api_key_switched",
-                                    "data": {
-                                        "tenant_id": str(switched_user.id),
-                                        "email": switched_user.email,
-                                        "api_key": switched_user.api_key,
-                                        "original_admin_id": str(user.id),
-                                        "original_admin_email": user.email,
-                                        "switch_session": switch_session,
-                                        "application_id": str(first_app.id) if first_app else None,
-                                        "application_name": first_app.name if first_app else None
-                                    }
-                                }
-
-                        if not auth_context:
-                            # Get first active application for this tenant
-                            first_app = db.query(Application).filter(
-                                Application.tenant_id == user.id,
-                                Application.is_active == True
-                            ).first()
-
-                            auth_context = {
-                                "type": "api_key_legacy",
-                                "data": {
-                                    "tenant_id": str(user.id),
-                                    "email": user.email,
-                                    "api_key": user.api_key,
-                                    "is_super_admin": admin_service.is_super_admin(user),
-                                    "application_id": str(first_app.id) if first_app else None,
-                                    "application_name": first_app.name if first_app else None
-                                }
-                            }
-
-            # Cache authentication result
-            if auth_context:
-                auth_cache.set(cache_key, auth_context)
-
-            return auth_context
-
-        finally:
-            db.close()
+admin_identity_resolver = AdminRequestIdentityResolver(  # fcg-rewrite
+    session_factory=get_admin_db_session,  # fcg-rewrite
+    admin_service=admin_service,  # fcg-rewrite
+)
 
 # Create FastAPI application
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+@asynccontextmanager  # fcg-rewrite
+async def console_lifespan(app: FastAPI):  # fcg-rewrite
     # Startup phase
-    os.makedirs(settings.data_dir, exist_ok=True)
-    os.makedirs(settings.log_dir, exist_ok=True)
+    os.makedirs(settings.data_dir, exist_ok=True)  # fcg-rewrite
+    os.makedirs(settings.log_dir, exist_ok=True)  # fcg-rewrite
 
     # Initialize database (management service needs full initialization)
-    await init_db(minimal=False)
+    await init_db(minimal=False)  # fcg-rewrite
 
     # Start cache cleaner
-    from services.cache_cleaner import cache_cleaner
-    await cache_cleaner.start()
+    from services.cache_cleaner import cache_cleaner  # fcg-rewrite
+    await cache_cleaner.start()  # fcg-rewrite
 
     # Start log to database service (replaces old data_sync_service)
     # This service provides better incremental processing and state persistence
-    if settings.store_detection_results:
-        from services.log_to_db_service import log_to_db_service
-        await log_to_db_service.start()
-        logger.info("Log to DB service started (STORE_DETECTION_RESULTS=true)")
+    if settings.store_detection_results:  # fcg-rewrite
+        from services.log_to_db_service import log_to_db_service  # fcg-rewrite
+        await log_to_db_service.start()  # fcg-rewrite
+        logger.info("Log to DB service started (STORE_DETECTION_RESULTS=true)")  # fcg-rewrite
     else:
-        logger.info("Log to DB service disabled (STORE_DETECTION_RESULTS=false)")
+        logger.info("Log to DB service disabled (STORE_DETECTION_RESULTS=false)")  # fcg-rewrite
 
     # Initialize plugins (async part — calls plugin.initialize())
-    from plugins.manager import plugin_manager
-    await plugin_manager.initialize_all(app_context={"service": "admin"})
+    from plugins.manager import plugin_manager  # fcg-rewrite
+    await plugin_manager.warm_up_plugins(app_context={"service": "admin"})  # fcg-rewrite
 
-    logger.info(f"{settings.app_name} Admin Service started")
-    logger.info(f"Data directory: {settings.data_dir}")
-    logger.info("Admin service optimized for management operations")
+    logger.info(f"{settings.app_name} Admin Service started")  # fcg-rewrite
+    logger.info(f"Data directory: {settings.data_dir}")  # fcg-rewrite
+    logger.info("Admin service optimized for management operations")  # fcg-rewrite
 
     try:
         yield
-    finally:
+    finally:  # fcg-rewrite
         # Shutdown phase
-        from services.cache_cleaner import cache_cleaner
-        await cache_cleaner.stop()
-        if settings.store_detection_results:
-            from services.log_to_db_service import log_to_db_service
-            await log_to_db_service.stop()
-        logger.info("Admin service shutdown completed")
+        from services.cache_cleaner import cache_cleaner  # fcg-rewrite
+        await cache_cleaner.stop()  # fcg-rewrite
+        if settings.store_detection_results:  # fcg-rewrite
+            from services.log_to_db_service import log_to_db_service  # fcg-rewrite
+            await log_to_db_service.stop()  # fcg-rewrite
+        logger.info("Admin service shutdown completed")  # fcg-rewrite
 
-app = FastAPI(
-    title=f"{settings.app_name} - Admin Service",
-    version=settings.app_version,
-    description="FangcunGuard management service - management platform API",
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None,
-    lifespan=lifespan,
+app = FastAPI(  # fcg-rewrite
+    title=f"{settings.app_name} - Admin Service",  # fcg-rewrite
+    version=settings.app_version,  # fcg-rewrite
+    description="FangcunGuard management service - management platform API",  # fcg-rewrite
+    docs_url="/docs" if settings.debug else None,  # fcg-rewrite
+    redoc_url="/redoc" if settings.debug else None,  # fcg-rewrite
+    lifespan=console_lifespan,  # fcg-rewrite
 )
 
 # Add concurrent control middleware (highest priority, added last)
-app.add_middleware(ConcurrentLimitMiddleware, service_type="admin", max_concurrent=settings.admin_max_concurrent_requests)
+app.add_middleware(ConcurrentLimitMiddleware, service_type="admin", max_concurrent=settings.admin_max_concurrent_requests)  # fcg-rewrite
 
 # Add authentication context middleware
-app.add_middleware(AuthCtxMiddleware)
+app.add_middleware(RequestIdentityMiddleware, resolver=admin_identity_resolver)  # fcg-rewrite
 
 # Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+app.add_middleware(  # fcg-rewrite
+    CORSMiddleware,  # fcg-rewrite
+    allow_origins=["*"],  # fcg-rewrite
+    allow_credentials=True,  # fcg-rewrite
+    allow_methods=["*"],  # fcg-rewrite
+    allow_headers=["*"],  # fcg-rewrite
+    expose_headers=["*"],  # fcg-rewrite
 )
 
 # Set log
-logger = setup_logger()
+logger = setup_logger()  # fcg-rewrite
 
-@app.get("/")
-async def root():
+@app.get("/")  # fcg-rewrite
+async def admin_root_info():  # fcg-rewrite
     """Root path"""
-    return {
-        "name": f"{settings.app_name} - Admin Service",
-        "version": settings.app_version,
-        "status": "running",
-        "service_type": "admin",
-        "support_email": settings.support_email,
-        "workers": settings.admin_uvicorn_workers
+    return {  # fcg-rewrite
+        "name": f"{settings.app_name} - Admin Service",  # fcg-rewrite
+        "version": settings.app_version,  # fcg-rewrite
+        "status": "running",  # fcg-rewrite
+        "service_type": "admin",  # fcg-rewrite
+        "support_email": settings.support_email,  # fcg-rewrite
+        "workers": settings.admin_uvicorn_workers  # fcg-rewrite
     }
 
-@app.get("/health")
-async def health_check():
+@app.get("/health")  # fcg-rewrite
+async def admin_health_probe():  # fcg-rewrite
     """Health check"""
-    return {
-        "status": "healthy", 
-        "version": settings.app_version,
-        "service": "admin"
+    return {  # fcg-rewrite
+        "status": "healthy",   # fcg-rewrite
+        "version": settings.app_version,  # fcg-rewrite
+        "service": "admin"  # fcg-rewrite
     }
 
 # User authentication function (full version)
-async def require_auth_ctx(
-    credentials: HTTPAuthorizationCredentials = Security(security),
-    request: Request = None,
+async def require_authenticated_context(  # fcg-rewrite
+    credentials: HTTPAuthorizationCredentials = Security(security),  # fcg-rewrite
+    request: Request = None,  # fcg-rewrite
 ):
     """Verify user authentication (management service only)"""
-    # Use middleware to parse authentication context
-    if request is not None:
-        auth_ctx = getattr(request.state, 'auth_context', None)
-        if auth_ctx:
-            return auth_ctx
-    
-    # If the middleware is not parsed, perform complete verification
-    token = credentials.credentials
-    from database.connection import get_admin_db_session
-    from database.models import Tenant
-    from utils.user import find_tenant_by_key
-    from utils.auth import verify_token
-    
-    db = get_admin_db_session()
-    try:
-        # JWT verification
-        try:
-            user_data = verify_token(token)
-            raw_tenant_id = user_data.get('tenant_id') or user_data.get('sub')
-            if isinstance(raw_tenant_id, str):
-                try:
-                    tenant_uuid = uuid.UUID(raw_tenant_id)
-                    user = db.query(Tenant).filter(Tenant.id == tenant_uuid).first()
-                    if user and user.is_active:
-                        return {
-                            "type": "jwt", 
-                            "data": {
-                                "tenant_id": str(user.id),
-                                "email": user.email,
-                                "is_super_admin": admin_service.is_super_admin(user)
-                            }
-                        }
-                except ValueError:
-                    pass
-        except:
-            pass
-        
-        # API key verification
-        user = find_tenant_by_key(db, token)
-        if user:
-            return {
-                "type": "api_key", 
-                "data": {
-                    "tenant_id": str(user.id),
-                    "email": user.email,
-                    "api_key": user.api_key,
-                    "is_super_admin": admin_service.is_super_admin(user)
-                }
-            }
-        
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-    finally:
-        db.close()
+    if request is not None:  # fcg-rewrite
+        request_context = getattr(request.state, 'auth_context', None)  # fcg-rewrite
+        if request_context:  # fcg-rewrite
+            return request_context  # fcg-rewrite
+    raise HTTPException(status_code=401, detail="Invalid credentials")  # fcg-rewrite
 
 # Register management routes
-app.include_router(auth.router, prefix="/api/v1/auth")
-app.include_router(user.router, prefix="/api/v1/users")
-app.include_router(dashboard.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(auth_session_routes.router, prefix="/api/v1/auth")  # fcg-rewrite
+app.include_router(account_user_routes.router, prefix="/api/v1/users")  # fcg-rewrite
+app.include_router(overview_routes.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 # Register public config routes (no auth required - e.g., system-info for deployment mode)
-app.include_router(config_api.public_router, prefix="/api/v1")
+app.include_router(configuration_hub.public_router, prefix="/api/v1")  # fcg-rewrite
 # Register protected config routes (auth required)
-app.include_router(config_api.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
-app.include_router(results.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
-app.include_router(sync.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
-app.include_router(admin.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
-app.include_router(online_test.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
-app.include_router(proxy_management.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
-app.include_router(concurrent_stats.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(configuration_hub.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
+app.include_router(inspection_results.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
+app.include_router(ops_sync_routes.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
+app.include_router(system_admin_routes.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
+app.include_router(interactive_test_routes.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
+app.include_router(upstream_config_routes.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
+app.include_router(concurrency_metrics_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 # Data Security entity types management
-from routers import data_security
-app.include_router(data_security.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(data_safety_routes.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Data Leakage Policy management
-from routers import data_leakage_policy_api
-app.include_router(data_leakage_policy_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(data_leakage_policy_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Gateway Policy management (unified security policy for Security Gateway)
-from routers import gateway_policy_api
-app.include_router(gateway_policy_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(gateway_policy_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Model Routes management (automatic model routing for Security Gateway)
-app.include_router(model_routes_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(model_routing_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Billing and Payment routes (only in SaaS mode)
-if settings.is_saas_mode:
-    app.include_router(billing.router, dependencies=[Depends(require_auth_ctx)])  # Billing APIs
-    app.include_router(payment_api.router)  # Payment API (webhook endpoints don't require auth)
-    logger.info("Billing and payment routes enabled (SaaS mode)")
+if settings.is_saas_mode:  # fcg-rewrite
+    app.include_router(billing_routes.router, dependencies=[Depends(require_authenticated_context)])  # Billing APIs  # fcg-rewrite
+    app.include_router(payment_gateway_routes.router)  # Payment API (webhook endpoints don't require auth)  # fcg-rewrite
+    logger.info("Billing and payment routes enabled (SaaS mode)")  # fcg-rewrite
 else:
-    logger.info("Billing and payment routes disabled (enterprise mode)")
+    logger.info("Billing and payment routes disabled (enterprise mode)")  # fcg-rewrite
 
-app.include_router(applications.router, prefix="/api/v1/applications", dependencies=[Depends(require_auth_ctx)])  # Application Management
+app.include_router(application_workspace_routes.router, prefix="/api/v1/applications", dependencies=[Depends(require_authenticated_context)])  # Application Management  # fcg-rewrite
 
 # Scanner Package System routes
-app.include_router(scanner_packages_api.router, dependencies=[Depends(require_auth_ctx)])  # Scanner Packages
-app.include_router(scanner_configs_api.router, dependencies=[Depends(require_auth_ctx)])  # Scanner Configs
-app.include_router(custom_scanners_api.router, dependencies=[Depends(require_auth_ctx)])  # Custom Scanners
+app.include_router(scanner_catalog_routes.router, dependencies=[Depends(require_authenticated_context)])  # Scanner Packages  # fcg-rewrite
+app.include_router(scanner_config_routes.router, dependencies=[Depends(require_authenticated_context)])  # Scanner Configs  # fcg-rewrite
+app.include_router(custom_scanner_routes.router, dependencies=[Depends(require_authenticated_context)])  # Custom Scanners  # fcg-rewrite
 
 # Package purchase routes (only in SaaS mode for premium packages)
-if settings.is_saas_mode:
-    app.include_router(purchase_api.router, dependencies=[Depends(require_auth_ctx)])  # Package Purchases
-    logger.info("Package purchase routes enabled (SaaS mode)")
+if settings.is_saas_mode:  # fcg-rewrite
+    app.include_router(package_purchase_routes.router, dependencies=[Depends(require_authenticated_context)])  # Package Purchases  # fcg-rewrite
+    logger.info("Package purchase routes enabled (SaaS mode)")  # fcg-rewrite
 else:
-    logger.info("Package purchase routes disabled (enterprise mode)")
+    logger.info("Package purchase routes disabled (enterprise mode)")  # fcg-rewrite
 
 # Import and register ban policy routes
-from routers import ban_policy_api
-app.include_router(ban_policy_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(ban_rules_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Import and register appeal configuration routes
-from routers import appeal_api
-app.include_router(appeal_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(appeal_config_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Plugin system: discover and register plugins (sync), then register their routers
-from plugins.manager import plugin_manager as _pm
-from plugins.registry import plugin_registry as _pr
-_pm.discover_and_register()  # sync: importlib discovery only, no async calls
-for _pname, _plugin in _pr.get_all().items():
-    for _router in _plugin.get_routers():
-        app.include_router(_router, dependencies=[Depends(require_auth_ctx)])
+from plugins.manager import plugin_manager as _pm  # fcg-rewrite
+from plugins.registry import plugin_registry as _pr  # fcg-rewrite
+_pm.discover_plugins()  # sync: importlib discovery only, no async calls  # fcg-rewrite
+for _pname, _plugin in _pr.get_all().items():  # fcg-rewrite
+    for _router in _plugin.get_routers():  # fcg-rewrite
+        app.include_router(_router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Plugin management API (Tool Center)
-from routers import plugins_api
-app.include_router(plugins_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(plugin_catalog_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 # Risk configuration routes
-app.include_router(risk_config_api.router, dependencies=[Depends(require_auth_ctx)])
+app.include_router(risk_profile_routes.router, dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 # Media router: image upload/delete needs authentication, but image access does not need authentication
 # First register image access routes that do not need authentication
-from fastapi import APIRouter
-from fastapi.responses import FileResponse
-from pathlib import Path
+from fastapi import APIRouter  # fcg-rewrite
+from fastapi.responses import FileResponse  # fcg-rewrite
+from pathlib import Path  # fcg-rewrite
 
-public_media_router = APIRouter(tags=["Media"])
+public_media_router = APIRouter(tags=["Media"])  # fcg-rewrite
 
-@public_media_router.get("/media/image/{tenant_id}/{filename}")
-async def get_image_public(tenant_id: str, filename: str):
+@public_media_router.get("/media/image/{tenant_id}/{filename}")  # fcg-rewrite
+async def serve_public_image(tenant_id: str, filename: str):  # fcg-rewrite
     """Get image file (public access, no authentication)"""
     try:
-        file_path = Path(settings.media_dir) / tenant_id / filename
-        if not str(file_path).startswith(str(Path(settings.media_dir))):
-            raise HTTPException(status_code=403, detail="No access to this file")
-        if not file_path.exists() or not file_path.is_file():
-            raise HTTPException(status_code=404, detail="File not found")
-        return FileResponse(path=str(file_path), media_type="image/jpeg", filename=filename)
-    except HTTPException:
+        file_path = Path(settings.media_dir) / tenant_id / filename  # fcg-rewrite
+        if not str(file_path).startswith(str(Path(settings.media_dir))):  # fcg-rewrite
+            raise HTTPException(status_code=403, detail="No access to this file")  # fcg-rewrite
+        if not file_path.exists() or not file_path.is_file():  # fcg-rewrite
+            raise HTTPException(status_code=404, detail="File not found")  # fcg-rewrite
+        return FileResponse(path=str(file_path), media_type="image/jpeg", filename=filename)  # fcg-rewrite
+    except HTTPException:  # fcg-rewrite
         raise
-    except Exception as e:
-        logger.error(f"Get image error: {e}")
-        raise HTTPException(status_code=500, detail=f"Get image failed: {str(e)}")
+    except Exception as e:  # fcg-rewrite
+        logger.error(f"Get image error: {e}")  # fcg-rewrite
+        raise HTTPException(status_code=500, detail=f"Get image failed: {str(e)}")  # fcg-rewrite
 
-app.include_router(public_media_router, prefix="/api/v1")
-app.include_router(media.router, prefix="/api/v1", dependencies=[Depends(require_auth_ctx)])
+app.include_router(public_media_router, prefix="/api/v1")  # fcg-rewrite
+app.include_router(media_asset_routes.router, prefix="/api/v1", dependencies=[Depends(require_authenticated_context)])  # fcg-rewrite
 
 
 # Global exception handling
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    import traceback
-    logger.error(f"Admin service exception: {exc}")
-    logger.error(f"Traceback: {traceback.format_exc()}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"Admin service internal error: {str(exc)}"}
+@app.exception_handler(Exception)  # fcg-rewrite
+async def handle_admin_exception(request, exc):  # fcg-rewrite
+    import traceback  # fcg-rewrite
+    logger.error(f"Admin service exception: {exc}")  # fcg-rewrite
+    logger.error(f"Traceback: {traceback.format_exc()}")  # fcg-rewrite
+    return JSONResponse(  # fcg-rewrite
+        status_code=500,  # fcg-rewrite
+        content={"detail": f"Admin service internal error: {str(exc)}"}  # fcg-rewrite
     )
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "admin_service:app",
-        host=settings.host,
-        port=settings.admin_port,
-        reload=settings.debug,
-        log_level=settings.log_level.lower(),
-        workers=settings.admin_uvicorn_workers if not settings.debug else 1
+if __name__ == "__main__":  # fcg-rewrite
+    uvicorn.run(  # fcg-rewrite
+        "admin_service:app",  # fcg-rewrite
+        host=settings.host,  # fcg-rewrite
+        port=settings.admin_port,  # fcg-rewrite
+        reload=settings.debug,  # fcg-rewrite
+        log_level=settings.log_level.lower(),  # fcg-rewrite
+        workers=settings.admin_uvicorn_workers if not settings.debug else 1  # fcg-rewrite
     )
