@@ -1,144 +1,76 @@
-"""
-Request context service for storing anonymization mapping within a request lifecycle.
+"""Request-local placeholder state for reversible anonymization."""
 
-This module provides a context-based storage mechanism for anonymization mappings
-that allows data to be passed from input processing to output processing
-without using external storage like Redis.
-"""
+from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import Dict, Optional
+from dataclasses import dataclass, field
 import logging
+from typing import Dict, Optional
+
 
 logger = logging.getLogger(__name__)
 
-# Request-scoped context for storing anonymization mapping
-_anonymization_mapping: ContextVar[Optional[Dict[str, str]]] = ContextVar(
-    'anonymization_mapping', default=None
-)
 
-# Request-scoped context for storing entity type counters (for numbered placeholders)
-_entity_counters: ContextVar[Optional[Dict[str, int]]] = ContextVar(
-    'entity_counters', default=None
+@dataclass(frozen=True)
+class AnonymizationState:
+    replacements: Dict[str, str] = field(default_factory=dict)
+    counters: Dict[str, int] = field(default_factory=dict)
+
+
+_request_state: ContextVar[AnonymizationState] = ContextVar(
+    "anonymization_state",
+    default=AnonymizationState(),
 )
 
 
 class AnonymizationContext:
-    """
-    Context manager for storing anonymization mapping within a request.
-
-    The mapping stores placeholder -> original value pairs, e.g.:
-    {
-        "[email_1]": "alice@gmail.com",
-        "[email_2]": "bob@qq.com",
-        "[phone_1]": "1382",  # Middle 4 digits
-    }
-
-    Usage:
-        # In input processing
-        AnonymizationContext.set_mapping({
-            "[email_1]": "alice@gmail.com"
-        })
-
-        # In output processing
-        mapping = AnonymizationContext.get_mapping()
-        restored_text = restore_placeholders(output_text, mapping)
-
-        # At request end
-        AnonymizationContext.clear()
-    """
+    """Store placeholder mappings without leaking mutable state across tasks."""
 
     @staticmethod
     def set_mapping(mapping: Dict[str, str]) -> None:
-        """
-        Store or update mapping for current request.
-
-        Args:
-            mapping: Dict mapping placeholders to original values
-        """
-        current = _anonymization_mapping.get() or {}
-        current.update(mapping)
-        _anonymization_mapping.set(current)
-        logger.debug(f"AnonymizationContext: Updated mapping with {len(mapping)} entries, total: {len(current)}")
+        state = _request_state.get()
+        replacements = {**state.replacements, **mapping}
+        _request_state.set(
+            AnonymizationState(replacements=replacements, counters=dict(state.counters))
+        )
+        logger.debug(
+            "Stored %s anonymization replacements (%s total)",
+            len(mapping),
+            len(replacements),
+        )
 
     @staticmethod
     def get_mapping() -> Dict[str, str]:
-        """
-        Get mapping for current request.
-
-        Returns:
-            Dict mapping placeholders to original values, or empty dict if none set
-        """
-        return _anonymization_mapping.get() or {}
+        return dict(_request_state.get().replacements)
 
     @staticmethod
     def has_mapping() -> bool:
-        """
-        Check if there is any mapping stored.
-
-        Returns:
-            True if mapping exists and is non-empty
-        """
-        mapping = _anonymization_mapping.get()
-        return mapping is not None and len(mapping) > 0
+        return bool(_request_state.get().replacements)
 
     @staticmethod
     def clear() -> None:
-        """Clear mapping at end of request."""
-        _anonymization_mapping.set(None)
-        _entity_counters.set(None)
-        logger.debug("AnonymizationContext: Cleared all mappings and counters")
+        _request_state.set(AnonymizationState())
+        logger.debug("Cleared request anonymization state")
 
     @staticmethod
     def get_next_counter(entity_type: str) -> int:
-        """
-        Get the next counter value for an entity type.
-
-        Used for generating numbered placeholders like [email_1], [email_2].
-
-        Args:
-            entity_type: The entity type code (e.g., "email", "phone")
-
-        Returns:
-            The next counter value (starts from 1)
-        """
-        counters = _entity_counters.get() or {}
-        current = counters.get(entity_type, 0)
-        next_val = current + 1
-        counters[entity_type] = next_val
-        _entity_counters.set(counters)
-        return next_val
+        state = _request_state.get()
+        counters = dict(state.counters)
+        next_value = counters.get(entity_type, 0) + 1
+        counters[entity_type] = next_value
+        _request_state.set(
+            AnonymizationState(replacements=dict(state.replacements), counters=counters)
+        )
+        return next_value
 
     @staticmethod
     def get_counters() -> Dict[str, int]:
-        """
-        Get all entity type counters.
-
-        Returns:
-            Dict mapping entity types to their current counter values
-        """
-        return _entity_counters.get() or {}
+        return dict(_request_state.get().counters)
 
 
-def restore_placeholders(text: str, mapping: Dict[str, str] = None) -> str:
-    """
-    Restore placeholders in text to original values.
-
-    Args:
-        text: Text containing placeholders like [email_1]
-        mapping: Optional mapping dict. If not provided, uses context mapping.
-
-    Returns:
-        Text with placeholders restored to original values
-    """
-    if mapping is None:
-        mapping = AnonymizationContext.get_mapping()
-
-    if not mapping:
-        return text
-
-    result = text
-    for placeholder, original in mapping.items():
-        result = result.replace(placeholder, original)
-
-    return result
+def restore_placeholders(text: str, mapping: Optional[Dict[str, str]] = None) -> str:
+    replacements = mapping if mapping is not None else AnonymizationContext.get_mapping()
+    restored = text
+    for placeholder in sorted(replacements, key=len, reverse=True):
+        restored = restored.replace(placeholder, replacements[placeholder])
+    return restored
