@@ -1,6 +1,6 @@
-# Guard Model Router
+# Fangcun Guard Router
 
-Guard Model Router 是 Fangcun Guard 的多模型安全检测调度系统。它通过分类路由将输入内容识别为不同的安全维度，再分发到对应的检测模型执行检测。
+Fangcun Guard Router 是 Fangcun Guard 的多模型安全检测调度系统。它通过分类路由将输入内容识别为不同的安全维度，再分发到对应的检测模型执行检测。
 
 用户为每个维度配置检测模型，只需提供 API Key 即可接入。支持自部署模型、第三方 API、任何 OpenAI 兼容接口。也可以使用 Fangcun Guard 后端服务作为检测模型。
 

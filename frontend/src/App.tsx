@@ -1,102 +1,30 @@
-import React, { useEffect, useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import Layout from './components/Layout/Layout';
-import ProtectedRoute from './components/ProtectedRoute/ProtectedRoute';
-import { ApplicationProvider } from './contexts/ApplicationContext';
-import Login from './pages/Login/Login';
-import Register from './pages/Register/Register';
-import Verify from './pages/Verify/Verify';
-import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
-import ResetPassword from './pages/ResetPassword/ResetPassword';
-import Dashboard from './pages/Dashboard/Dashboard';
-import Results from './pages/Results/Results';
-import Reports from './pages/Reports/Reports';
-import Config from './pages/Config/Config';
-import AdminPanel from './pages/Admin/AdminPanel';
-import Account from './pages/Account/Account';
-import OnlineTest from './pages/OnlineTest/OnlineTest';
-import { LLMProviders, SecurityPolicy, ModelRoutes } from './pages/SecurityGateway';
-import Documentation from './pages/Documentation/Documentation'
-import Demo from './pages/Demo/Demo';
-import Subscription from './pages/Billing/Subscription';
-import ApplicationManagement from './pages/Config/ApplicationManagement';
-import ApplicationDiscovery from './pages/Config/ApplicationDiscovery';
-import { AccessControl } from './pages/AccessControl';
-import ToolCenter from './pages/ToolCenter/ToolCenter';
-import DeploymentAgent from './pages/ToolCenter/DeploymentAgent';
-import SkillScannerPage from './pages/ToolCenter/SkillScannerPage';
-import McpScannerPage from './pages/ToolCenter/McpScannerPage';
-import { initSystemConfig, features } from './config';
+import React from 'react'
+import { Route, Routes } from 'react-router-dom'
+
+import { features } from './config'
+import { ApplicationProvider } from './contexts/ApplicationContext'
+import { LoginScreen } from './features/auth/screens'
+import { useAppBootstrap } from './hooks/useAppBootstrap'
+import AppShell from './navigation/AppShell'
+import { renderRouteCatalog } from './navigation/RouteRenderer'
+import { publicRouteCatalog } from './navigation/routeCatalog'
 
 function App() {
-  const { t, i18n } = useTranslation();
-  const [configLoaded, setConfigLoaded] = useState(false);
+  const { configLoaded } = useAppBootstrap()
 
-  // Initialize system configuration
-  useEffect(() => {
-    const loadConfig = async () => {
-      await initSystemConfig();
-      setConfigLoaded(true);
-    };
-    loadConfig();
-  }, []);
-
-  // Update document title based on current language
-  useEffect(() => {
-    document.title = t('common.appName');
-  }, [t, i18n.language]);
-
-  // Don't render until config is loaded
   if (!configLoaded) {
-    return null;
+    return null
   }
 
   return (
     <ApplicationProvider>
       <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/verify" element={<Verify />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/*" element={
-          <ProtectedRoute>
-            <Layout>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/online-test" element={<OnlineTest />} />
-              <Route path="/results" element={<Results />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/applications" element={<ApplicationManagement />} />
-              <Route path="/applications/list" element={<ApplicationManagement />} />
-              <Route path="/applications/discovery" element={<ApplicationDiscovery />} />
-              <Route path="/security-gateway/providers" element={<LLMProviders />} />
-              <Route path="/security-gateway/policy" element={<SecurityPolicy />} />
-              <Route path="/security-gateway/model-routes" element={<ModelRoutes />} />
-              <Route path="/config/*" element={<Config />} />
-              <Route path="/access-control/*" element={<AccessControl />} />
-              <Route path="/tool-center" element={<ToolCenter />} />
-              <Route path="/tool-center/deployment-agent" element={<DeploymentAgent />} />
-              <Route path="/tool-center/skill-scanner" element={<SkillScannerPage />} />
-              <Route path="/tool-center/mcp-scanner" element={<McpScannerPage />} />
-              <Route path="/admin/*" element={<AdminPanel />} />
-              <Route path="/account" element={<Account />} />
-              {features.showSubscription() && (
-                <Route path="/subscription" element={<Subscription />} />
-              )}
-              <Route path="/documentation" element={<Documentation />} />
-              <Route path="/demo" element={<Demo />} />
-            </Routes>
-          </Layout>
-        </ProtectedRoute>
-      } />
-      {/* Root redirect to dashboard */}
-      <Route path="/" element={<Login />} />
+        {renderRouteCatalog(publicRouteCatalog)}
+        <Route path="/*" element={<AppShell includeSubscription={features.showSubscription()} />} />
+        <Route path="/" element={<LoginScreen />} />
       </Routes>
     </ApplicationProvider>
-  );
+  )
 }
 
-export default App;
+export default App

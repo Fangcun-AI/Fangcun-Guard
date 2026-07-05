@@ -2,32 +2,24 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-const Card = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn(
-      "rounded-xl border bg-card text-card-foreground shadow-elevation-2 transition-all duration-300 hover:shadow-elevation-4 hover:-translate-y-0.5 hover:border-primary/15",
-      className
-    )}
-    {...props}
-  />
-))
-Card.displayName = "Card"
+type DivProps = React.HTMLAttributes<HTMLDivElement>
 
-const CardHeader = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn("flex flex-col space-y-1.5 p-6", className)}
-    {...props}
-  />
-))
-CardHeader.displayName = "CardHeader"
+const createCardBlock = (displayName: string, baseClassName: string) => {
+  const Component = React.forwardRef<HTMLDivElement, DivProps>(
+    ({ className, ...props }, ref) => (
+      <div ref={ref} className={cn(baseClassName, className)} {...props} />
+    )
+  )
+  Component.displayName = displayName
+  return Component
+}
+
+const Card = createCardBlock(
+  "Card",
+  "rounded-xl border bg-card text-card-foreground shadow-elevation-2 transition-all duration-300 hover:shadow-elevation-4 hover:-translate-y-0.5 hover:border-primary/15"
+)
+
+const CardHeader = createCardBlock("CardHeader", "flex flex-col space-y-1.5 p-6")
 
 const CardTitle = React.forwardRef<
   HTMLParagraphElement,
@@ -56,24 +48,8 @@ const CardDescription = React.forwardRef<
 ))
 CardDescription.displayName = "CardDescription"
 
-const CardContent = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
-))
-CardContent.displayName = "CardContent"
+const CardContent = createCardBlock("CardContent", "p-6 pt-0")
 
-const CardFooter = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn("flex items-center p-6 pt-0", className)}
-    {...props}
-  />
-))
-CardFooter.displayName = "CardFooter"
+const CardFooter = createCardBlock("CardFooter", "flex items-center p-6 pt-0")
 
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }

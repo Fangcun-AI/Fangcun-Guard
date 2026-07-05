@@ -1,247 +1,74 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { toast } from 'sonner';
-import { useTranslation } from 'react-i18next';
-import { paymentService, PaymentVerificationResult } from '../services/payment';
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
+import { PaymentVerificationResult, paymentService } from '../services/payment'
 
 export interface PaymentSuccessOptions {
-  /**
-   * Callback when payment is successfully verified
-   */
-  onSuccess?: (result: PaymentVerificationResult) => void;
-
-  /**
-   * Callback when payment verification fails
-   */
-  onError?: (error: string) => void;
-
-  /**
-   * Maximum number of verification attempts (default: 15)
-   */
-  maxAttempts?: number;
-
-  /**
-   * Polling interval in milliseconds (default: 2000)
-   */
-  pollingInterval?: number;
-
-  /**
-   * Whether to show toast notifications (default: true)
-   */
-  showToast?: boolean;
+  onSuccess?: (result: PaymentVerificationResult) => void
+  onError?: (error: string) => void
+  maxAttempts?: number
+  pollingInterval?: number
+  showToast?: boolean
 }
-
 export interface PaymentSuccessState {
-  /**
-   * Whether payment verification is in progress
-   */
-  isVerifying: boolean;
-
-  /**
-   * Verification result (null if not started or in progress)
-   */
-  result: PaymentVerificationResult | null;
-
-  /**
-   * Error message if verification failed
-   */
-  error: string | null;
+  isVerifying: boolean
+  result: PaymentVerificationResult | null
+  error: string | null
 }
+const initialState: PaymentSuccessState = { isVerifying: false, result: null, error: null }
 
-/**
- * Custom hook to handle payment success verification after redirect
- *
- * This hook:
- * 1. Detects payment=success and session_id URL params
- * 2. Polls backend to verify payment status
- * 3. Shows appropriate loading/success/error messages
- * 4. Calls callbacks when verification completes
- * 5. Cleans up URL params after handling
- *
- * Usage:
- * ```tsx
- * const { isVerifying, result } = usePaymentSuccess({
- *   onSuccess: (result) => {
- *     if (result.order_type === 'subscription') {
- *       refreshSubscription();
- *     } else if (result.order_type === 'package') {
- *       refreshPackages();
- *     }
- *   }
- * });
- * ```
- */
 export function usePaymentSuccess(options: PaymentSuccessOptions = {}): PaymentSuccessState {
-  const {
-    onSuccess,
-    onError,
-    maxAttempts = 15,
-    pollingInterval = 2000,
-    showToast = true
-  } = options;
+  const { onSuccess, onError, maxAttempts = 15, pollingInterval = 2000, showToast = true } = options
+  const { t } = useTranslation()
+  const [params, setParams] = useSearchParams()
+  const [state, setState] = useState(initialState)
+  const visited = useRef(new Set<string>())
 
-  const { t } = useTranslation();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const clear = useCallback(() => setParams({}), [setParams])
+  const fail = useCallback((message: string, result: PaymentVerificationResult | null = null) => {
+    if (showToast) toast.error(message, { id: 'payment-verify' })
+    setState({ isVerifying: false, result, error: message })
+    onError?.(message)
+    clear()
+  }, [clear, onError, showToast])
 
-  const [state, setState] = useState<PaymentSuccessState>({
-    isVerifying: false,
-    result: null,
-    error: null
-  });
-
-  // Track processed sessions to prevent duplicate verification
-  const processedSessionsRef = useRef<Set<string>>(new Set());
-
-  const verifyPayment = useCallback(async (sessionId: string) => {
-    let attempts = 0;
-
-    // Show loading toast
-    if (showToast) {
-      toast.loading(t('payment.verifying'), { id: 'payment-verify' });
-    }
-
-    setState({
-      isVerifying: true,
-      result: null,
-      error: null
-    });
-
-    const poll = async (): Promise<void> => {
+  const verify = useCallback(async (sessionId: string) => {
+    if (showToast) toast.loading(t('payment.verifying'), { id: 'payment-verify' })
+    setState({ isVerifying: true, result: null, error: null })
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
-        attempts++;
-
-        const result = await paymentService.verifyPaymentSession(sessionId);
-
-        // Payment completed successfully
+        const result = await paymentService.verifyPaymentSession(sessionId)
         if (result.status === 'completed') {
-          console.log('[usePaymentSuccess] Payment completed, attempts:', attempts);
-
-          if (showToast) {
-            console.log('[usePaymentSuccess] Showing success toast');
-            toast.success(t('payment.success'), { id: 'payment-verify' });
-          }
-
-          setState({
-            isVerifying: false,
-            result,
-            error: null
-          });
-
-          if (onSuccess) {
-            console.log('[usePaymentSuccess] Calling onSuccess callback');
-            onSuccess(result);
-          }
-
-          // Clean up URL params
-          console.log('[usePaymentSuccess] Cleaning up URL params');
-          setSearchParams({});
-          return;
+          if (showToast) toast.success(t('payment.success'), { id: 'payment-verify' })
+          setState({ isVerifying: false, result, error: null })
+          onSuccess?.(result)
+          clear()
+          return
         }
-
-        // Payment failed
         if (result.status === 'failed' || result.status === 'not_found') {
-          const errorMsg = result.message || t('payment.failed');
-
-          if (showToast) {
-            toast.error(errorMsg, { id: 'payment-verify' });
-          }
-
-          setState({
-            isVerifying: false,
-            result,
-            error: errorMsg
-          });
-
-          if (onError) {
-            onError(errorMsg);
-          }
-
-          // Clean up URL params
-          setSearchParams({});
-          return;
-        }
-
-        // Still pending - continue polling if not exceeded max attempts
-        if (attempts < maxAttempts) {
-          setTimeout(poll, pollingInterval);
-        } else {
-          // Timeout
-          const timeoutMsg = t('payment.verificationTimeout');
-
-          if (showToast) {
-            toast.warning(timeoutMsg, { id: 'payment-verify' });
-          }
-
-          setState({
-            isVerifying: false,
-            result: null,
-            error: timeoutMsg
-          });
-
-          if (onError) {
-            onError(timeoutMsg);
-          }
-
-          // Clean up URL params
-          setSearchParams({});
+          fail(result.message || t('payment.failed'), result)
+          return
         }
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : t('payment.verificationError');
-
-        if (showToast) {
-          toast.error(errorMsg, { id: 'payment-verify' });
-        }
-
-        setState({
-          isVerifying: false,
-          result: null,
-          error: errorMsg
-        });
-
-        if (onError) {
-          onError(errorMsg);
-        }
-
-        // Clean up URL params
-        setSearchParams({});
+        fail(error instanceof Error ? error.message : t('payment.verificationError'))
+        return
       }
-    };
-
-    // Start polling
-    await poll();
-  }, [t, maxAttempts, pollingInterval, showToast, onSuccess, onError, setSearchParams]);
-
-  // Check for payment success on mount and when URL params change
-  useEffect(() => {
-    const paymentStatus = searchParams.get('payment');
-    const sessionId = searchParams.get('session_id');
-
-    console.log('[usePaymentSuccess] useEffect triggered', {
-      paymentStatus,
-      sessionId,
-      isVerifying: state.isVerifying,
-      alreadyProcessed: sessionId ? processedSessionsRef.current.has(sessionId) : false,
-      willTrigger: paymentStatus === 'success' && sessionId && !state.isVerifying && !processedSessionsRef.current.has(sessionId)
-    });
-
-    // Only handle if:
-    // 1. Both params are present
-    // 2. Not already verifying
-    // 3. Haven't processed this session before
-    if (
-      paymentStatus === 'success' &&
-      sessionId &&
-      !state.isVerifying &&
-      !processedSessionsRef.current.has(sessionId)
-    ) {
-      console.log('[usePaymentSuccess] Starting payment verification for session:', sessionId);
-      // Mark as processed immediately to prevent duplicate processing
-      processedSessionsRef.current.add(sessionId);
-      verifyPayment(sessionId);
+      if (attempt + 1 < maxAttempts) await new Promise(resolve => setTimeout(resolve, pollingInterval))
     }
-  }, [searchParams, state.isVerifying, verifyPayment]);
+    const message = t('payment.verificationTimeout')
+    if (showToast) toast.warning(message, { id: 'payment-verify' })
+    setState({ isVerifying: false, result: null, error: message })
+    onError?.(message)
+    clear()
+  }, [clear, fail, maxAttempts, onError, onSuccess, pollingInterval, showToast, t])
 
-  return state;
+  useEffect(() => {
+    const sessionId = params.get('session_id')
+    if (params.get('payment') !== 'success' || !sessionId || state.isVerifying || visited.current.has(sessionId)) return
+    visited.current.add(sessionId)
+    void verify(sessionId)
+  }, [params, state.isVerifying, verify])
+  return state
 }
-
-export default usePaymentSuccess;
+export default usePaymentSuccess

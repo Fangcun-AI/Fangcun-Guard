@@ -1,256 +1,256 @@
-# FangcunGuard Docker Compose Configuration
-# Supports both production (pre-built images) and development (local build)
+# FangcunGuard Docker Compose Configuration # fcg-rewrite
+# Supports both production (pre-built images) and development (local build) # fcg-rewrite
 
-services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: fangcunguard-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: fangcunguard
-      POSTGRES_USER: fangcunguard
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_password}
-      POSTGRES_HOST_AUTH_METHOD: md5
-    command: [
-      "postgres",
-      "-c", "max_connections=600",           # Increased for multi-worker architecture
-      "-c", "shared_buffers=256MB",
-      "-c", "effective_cache_size=1GB",
-      "-c", "maintenance_work_mem=64MB",
-      "-c", "checkpoint_completion_target=0.9",
-      "-c", "wal_buffers=16MB",
-      "-c", "default_statistics_target=100",
-      "-c", "random_page_cost=1.1",
-      "-c", "effective_io_concurrency=200",
-      "-c", "work_mem=4MB"
-    ]
-    ports:
-      - "${POSTGRES_PORT:-54321}:5432"
-    volumes:
-      - fangcunguard-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fangcunguard -d fangcunguard"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - fangcunguard-network
+services: # fcg-rewrite
+  # PostgreSQL Database # fcg-rewrite
+  postgres: # fcg-rewrite
+    image: postgres:16-alpine # fcg-rewrite
+    container_name: fangcunguard-postgres # fcg-rewrite
+    restart: unless-stopped # fcg-rewrite
+    environment: # fcg-rewrite
+      POSTGRES_DB: fangcunguard # fcg-rewrite
+      POSTGRES_USER: fangcunguard # fcg-rewrite
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_password} # fcg-rewrite
+      POSTGRES_HOST_AUTH_METHOD: md5 # fcg-rewrite
+    command: [ # fcg-rewrite
+      "postgres", # fcg-rewrite
+      "-c", "max_connections=600",           # Increased for multi-worker architecture # fcg-rewrite
+      "-c", "shared_buffers=256MB", # fcg-rewrite
+      "-c", "effective_cache_size=1GB", # fcg-rewrite
+      "-c", "maintenance_work_mem=64MB", # fcg-rewrite
+      "-c", "checkpoint_completion_target=0.9", # fcg-rewrite
+      "-c", "wal_buffers=16MB", # fcg-rewrite
+      "-c", "default_statistics_target=100", # fcg-rewrite
+      "-c", "random_page_cost=1.1", # fcg-rewrite
+      "-c", "effective_io_concurrency=200", # fcg-rewrite
+      "-c", "work_mem=4MB" # fcg-rewrite
+    ] # fcg-rewrite
+    ports: # fcg-rewrite
+      - "${POSTGRES_PORT:-54321}:5432" # fcg-rewrite
+    volumes: # fcg-rewrite
+      - fangcunguard-db-data:/var/lib/postgresql/data # fcg-rewrite
+    healthcheck: # fcg-rewrite
+      test: ["CMD-SHELL", "pg_isready -U fangcunguard -d fangcunguard"] # fcg-rewrite
+      interval: 5s # fcg-rewrite
+      timeout: 5s # fcg-rewrite
+      retries: 5 # fcg-rewrite
+    networks: # fcg-rewrite
+      - fangcunguard-network # fcg-rewrite
 
-  # Unified Platform Service (Frontend + Backend Services)
-  # Two deployment modes:
-  # - Production: Uses pre-built image from Docker Hub (set USE_PREBUILT_IMAGE=true)
-  # - Development: Builds from local source code (default)
-  platform:
-    image: ${PLATFORM_IMAGE:-fangcunguard/fangcunguard-platform:latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        VITE_BASE: "/platform/"
-    container_name: fangcunguard-platform
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"      # Frontend (Nginx)
-      - "${ADMIN_PORT:-5000}:5000"       # Admin Service
-      - "${DETECTION_PORT:-5001}:5001"   # Detection Service
-      - "${PROXY_PORT:-5002}:5002"       # Proxy Service
-    environment:
-      # Database configuration
-      - DATABASE_HOST=${DATABASE_HOST:-postgres}
-      - DATABASE_USER=${DATABASE_USER:-fangcunguard}
-      - DATABASE_NAME=${DATABASE_NAME:-fangcunguard}
-      - DATABASE_URL=postgresql://${DATABASE_USER:-fangcunguard}:${POSTGRES_PASSWORD:-your_password}@${DATABASE_HOST:-postgres}:5432/${DATABASE_NAME:-fangcunguard}
-      - RESET_DATABASE_ON_STARTUP=false
+  # Unified Platform Service (Frontend + Backend Services) # fcg-rewrite
+  # Two deployment modes: # fcg-rewrite
+  # - Production: Uses pre-built image from Docker Hub (set USE_PREBUILT_IMAGE=true) # fcg-rewrite
+  # - Development: Builds from local source code (default) # fcg-rewrite
+  platform: # fcg-rewrite
+    image: ${PLATFORM_IMAGE:-fangcunguard/fangcunguard-platform:latest} # fcg-rewrite
+    build: # fcg-rewrite
+      context: . # fcg-rewrite
+      dockerfile: Dockerfile # fcg-rewrite
+      args: # fcg-rewrite
+        VITE_BASE: "/platform/" # fcg-rewrite
+    container_name: fangcunguard-platform # fcg-rewrite
+    restart: unless-stopped # fcg-rewrite
+    ports: # fcg-rewrite
+      - "${FRONTEND_PORT:-3000}:80"      # Frontend (Nginx) # fcg-rewrite
+      - "${ADMIN_PORT:-5000}:5000"       # Admin Service # fcg-rewrite
+      - "${DETECTION_PORT:-5001}:5001"   # Detection Service # fcg-rewrite
+      - "${PROXY_PORT:-5002}:5002"       # Proxy Service # fcg-rewrite
+    environment: # fcg-rewrite
+      # Database configuration # fcg-rewrite
+      - DATABASE_HOST=${DATABASE_HOST:-postgres} # fcg-rewrite
+      - DATABASE_USER=${DATABASE_USER:-fangcunguard} # fcg-rewrite
+      - DATABASE_NAME=${DATABASE_NAME:-fangcunguard} # fcg-rewrite
+      - DATABASE_URL=postgresql://${DATABASE_USER:-fangcunguard}:${POSTGRES_PASSWORD:-your_password}@${DATABASE_HOST:-postgres}:5432/${DATABASE_NAME:-fangcunguard} # fcg-rewrite
+      - RESET_DATABASE_ON_STARTUP=false # fcg-rewrite
 
-      # Application configuration
-      - DEBUG=${DEBUG:-false}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
+      # Application configuration # fcg-rewrite
+      - DEBUG=${DEBUG:-false} # fcg-rewrite
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production} # fcg-rewrite
 
-      # Deployment mode configuration
-      # 'enterprise': Private enterprise deployment (default) - no subscription, no third-party package marketplace
-      # 'saas': SaaS deployment - with subscription system and third-party package marketplace
-      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-enterprise}
+      # Deployment mode configuration # fcg-rewrite
+      # 'enterprise': Private enterprise deployment (default) - no subscription, no third-party package marketplace # fcg-rewrite
+      # 'saas': SaaS deployment - with subscription system and third-party package marketplace # fcg-rewrite
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-enterprise} # fcg-rewrite
 
-      # Data directory configuration
-      - DATA_DIR=${DATA_DIR:-/mnt/data/fangcunguard-data}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Data directory configuration # fcg-rewrite
+      - DATA_DIR=${DATA_DIR:-/mnt/data/fangcunguard-data} # fcg-rewrite
+      - LOG_LEVEL=${LOG_LEVEL:-INFO} # fcg-rewrite
 
-      # CORS configuration
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      # CORS configuration # fcg-rewrite
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000} # fcg-rewrite
 
-      # Administrator configuration
-      - SUPER_ADMIN_USERNAME=${SUPER_ADMIN_USERNAME:-admin@yourdomain.com}
-      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:-CHANGE-THIS-PASSWORD-IN-PRODUCTION}
+      # Administrator configuration # fcg-rewrite
+      - SUPER_ADMIN_USERNAME=${SUPER_ADMIN_USERNAME:-admin@yourdomain.com} # fcg-rewrite
+      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:-CHANGE-THIS-PASSWORD-IN-PRODUCTION} # fcg-rewrite
 
-      # Default language configuration (for offline deployments)
-      # Options: 'en' (English) or 'zh' (Chinese)
-      - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en}
+      # Default language configuration (for offline deployments) # fcg-rewrite
+      # Options: 'en' (English) or 'zh' (Chinese) # fcg-rewrite
+      - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en} # fcg-rewrite
 
-      # Model API configuration (FangcunGuard Text Model)
-      # Configure to point to your deployed vLLM text model service
-      - GUARDRAILS_MODEL_API_URL=${GUARDRAILS_MODEL_API_URL:-http://localhost:58002/v1}
-      - GUARDRAILS_MODEL_API_KEY=${GUARDRAILS_MODEL_API_KEY:-EMPTY}
-      - GUARDRAILS_MODEL_NAME=${GUARDRAILS_MODEL_NAME:-Qwen3Guard-Gen-8B}
+      # Model API configuration (FangcunGuard Text Model) # fcg-rewrite
+      # Configure to point to your deployed vLLM text model service # fcg-rewrite
+      - GUARDRAILS_MODEL_API_URL=${GUARDRAILS_MODEL_API_URL:-http://localhost:58002/v1} # fcg-rewrite
+      - GUARDRAILS_MODEL_API_KEY=${GUARDRAILS_MODEL_API_KEY:-EMPTY} # fcg-rewrite
+      - GUARDRAILS_MODEL_NAME=${GUARDRAILS_MODEL_NAME:-Qwen3Guard-Gen-8B} # fcg-rewrite
 
-      # Guard Model Router (optional)
-      # Set GUARD_MODELS_CONFIG_PATH=guard_models.yaml in .env to enable.
-      # See backend/guard_models.yaml for model list and routing rules.
-      - GUARD_MODELS_CONFIG_PATH=${GUARD_MODELS_CONFIG_PATH:-}
-      # Per-model credentials — empty ones auto-skipped via circuit breaker
-      - LLAMA_GUARD_API_URL=${LLAMA_GUARD_API_URL:-}
-      - LLAMA_GUARD_API_KEY=${LLAMA_GUARD_API_KEY:-}
-      - LLAMA_GUARD_MODEL_NAME=${LLAMA_GUARD_MODEL_NAME:-}
-      - PROMPT_GUARD_API_URL=${PROMPT_GUARD_API_URL:-}
-      - PROMPT_GUARD_API_KEY=${PROMPT_GUARD_API_KEY:-}
-      - PROMPT_GUARD_MODEL_NAME=${PROMPT_GUARD_MODEL_NAME:-}
-      - WILDGUARD_API_URL=${WILDGUARD_API_URL:-}
-      - WILDGUARD_API_KEY=${WILDGUARD_API_KEY:-}
-      - WILDGUARD_MODEL_NAME=${WILDGUARD_MODEL_NAME:-}
-      - TOXIC_BERT_API_URL=${TOXIC_BERT_API_URL:-}
-      - TOXIC_BERT_API_KEY=${TOXIC_BERT_API_KEY:-}
-      - TOXIC_BERT_MODEL_NAME=${TOXIC_BERT_MODEL_NAME:-}
-      - GLINER_PII_API_URL=${GLINER_PII_API_URL:-}
-      - GLINER_PII_API_KEY=${GLINER_PII_API_KEY:-}
-      - GLINER_PII_MODEL_NAME=${GLINER_PII_MODEL_NAME:-}
-      - VECTARA_HHEM_API_URL=${VECTARA_HHEM_API_URL:-}
-      - VECTARA_HHEM_API_KEY=${VECTARA_HHEM_API_KEY:-}
-      - VECTARA_HHEM_MODEL_NAME=${VECTARA_HHEM_MODEL_NAME:-}
-      - CODESHIELD_API_URL=${CODESHIELD_API_URL:-}
-      - CODESHIELD_API_KEY=${CODESHIELD_API_KEY:-}
-      - CODESHIELD_MODEL_NAME=${CODESHIELD_MODEL_NAME:-}
-      - SHIELDGEMMA_API_URL=${SHIELDGEMMA_API_URL:-}
-      - SHIELDGEMMA_API_KEY=${SHIELDGEMMA_API_KEY:-}
-      - SHIELDGEMMA_MODEL_NAME=${SHIELDGEMMA_MODEL_NAME:-}
-      - GUARD_AGENT_API_URL=${GUARD_AGENT_API_URL:-}
-      - GUARD_AGENT_API_KEY=${GUARD_AGENT_API_KEY:-}
-      - GUARD_AGENT_MODEL_NAME=${GUARD_AGENT_MODEL_NAME:-}
-      - AEGIS_API_URL=${AEGIS_API_URL:-}
-      - AEGIS_API_KEY=${AEGIS_API_KEY:-}
-      - AEGIS_MODEL_NAME=${AEGIS_MODEL_NAME:-}
-      - AZURE_CONTENT_SAFETY_URL=${AZURE_CONTENT_SAFETY_URL:-}
-      - AZURE_CONTENT_SAFETY_KEY=${AZURE_CONTENT_SAFETY_KEY:-}
-      - AZURE_CONTENT_SAFETY_MODEL_NAME=${AZURE_CONTENT_SAFETY_MODEL_NAME:-}
-      - OPENAI_MODERATION_API_URL=${OPENAI_MODERATION_API_URL:-}
-      - OPENAI_MODERATION_API_KEY=${OPENAI_MODERATION_API_KEY:-}
-      - OPENAI_MODERATION_MODEL_NAME=${OPENAI_MODERATION_MODEL_NAME:-}
-      - PATRONUS_API_URL=${PATRONUS_API_URL:-}
-      - PATRONUS_API_KEY=${PATRONUS_API_KEY:-}
-      - PATRONUS_MODEL_NAME=${PATRONUS_MODEL_NAME:-}
-      - GUARD_06B_API_URL=${GUARD_06B_API_URL:-}
-      - GUARD_06B_API_KEY=${GUARD_06B_API_KEY:-}
-      - GUARD_06B_MODEL_NAME=${GUARD_06B_MODEL_NAME:-}
+      # Guard Model Router (optional) # fcg-rewrite
+      # Set GUARD_MODELS_CONFIG_PATH=guard_models.yaml in .env to enable. # fcg-rewrite
+      # See backend/guard_models.yaml for model list and routing rules. # fcg-rewrite
+      - GUARD_MODELS_CONFIG_PATH=${GUARD_MODELS_CONFIG_PATH:-} # fcg-rewrite
+      # Per-model credentials — empty ones auto-skipped via circuit breaker # fcg-rewrite
+      - LLAMA_GUARD_API_URL=${LLAMA_GUARD_API_URL:-} # fcg-rewrite
+      - LLAMA_GUARD_API_KEY=${LLAMA_GUARD_API_KEY:-} # fcg-rewrite
+      - LLAMA_GUARD_MODEL_NAME=${LLAMA_GUARD_MODEL_NAME:-} # fcg-rewrite
+      - PROMPT_GUARD_API_URL=${PROMPT_GUARD_API_URL:-} # fcg-rewrite
+      - PROMPT_GUARD_API_KEY=${PROMPT_GUARD_API_KEY:-} # fcg-rewrite
+      - PROMPT_GUARD_MODEL_NAME=${PROMPT_GUARD_MODEL_NAME:-} # fcg-rewrite
+      - WILDGUARD_API_URL=${WILDGUARD_API_URL:-} # fcg-rewrite
+      - WILDGUARD_API_KEY=${WILDGUARD_API_KEY:-} # fcg-rewrite
+      - WILDGUARD_MODEL_NAME=${WILDGUARD_MODEL_NAME:-} # fcg-rewrite
+      - TOXIC_BERT_API_URL=${TOXIC_BERT_API_URL:-} # fcg-rewrite
+      - TOXIC_BERT_API_KEY=${TOXIC_BERT_API_KEY:-} # fcg-rewrite
+      - TOXIC_BERT_MODEL_NAME=${TOXIC_BERT_MODEL_NAME:-} # fcg-rewrite
+      - GLINER_PII_API_URL=${GLINER_PII_API_URL:-} # fcg-rewrite
+      - GLINER_PII_API_KEY=${GLINER_PII_API_KEY:-} # fcg-rewrite
+      - GLINER_PII_MODEL_NAME=${GLINER_PII_MODEL_NAME:-} # fcg-rewrite
+      - VECTARA_HHEM_API_URL=${VECTARA_HHEM_API_URL:-} # fcg-rewrite
+      - VECTARA_HHEM_API_KEY=${VECTARA_HHEM_API_KEY:-} # fcg-rewrite
+      - VECTARA_HHEM_MODEL_NAME=${VECTARA_HHEM_MODEL_NAME:-} # fcg-rewrite
+      - CODESHIELD_API_URL=${CODESHIELD_API_URL:-} # fcg-rewrite
+      - CODESHIELD_API_KEY=${CODESHIELD_API_KEY:-} # fcg-rewrite
+      - CODESHIELD_MODEL_NAME=${CODESHIELD_MODEL_NAME:-} # fcg-rewrite
+      - SHIELDGEMMA_API_URL=${SHIELDGEMMA_API_URL:-} # fcg-rewrite
+      - SHIELDGEMMA_API_KEY=${SHIELDGEMMA_API_KEY:-} # fcg-rewrite
+      - SHIELDGEMMA_MODEL_NAME=${SHIELDGEMMA_MODEL_NAME:-} # fcg-rewrite
+      - GUARD_AGENT_API_URL=${GUARD_AGENT_API_URL:-} # fcg-rewrite
+      - GUARD_AGENT_API_KEY=${GUARD_AGENT_API_KEY:-} # fcg-rewrite
+      - GUARD_AGENT_MODEL_NAME=${GUARD_AGENT_MODEL_NAME:-} # fcg-rewrite
+      - AEGIS_API_URL=${AEGIS_API_URL:-} # fcg-rewrite
+      - AEGIS_API_KEY=${AEGIS_API_KEY:-} # fcg-rewrite
+      - AEGIS_MODEL_NAME=${AEGIS_MODEL_NAME:-} # fcg-rewrite
+      - AZURE_CONTENT_SAFETY_URL=${AZURE_CONTENT_SAFETY_URL:-} # fcg-rewrite
+      - AZURE_CONTENT_SAFETY_KEY=${AZURE_CONTENT_SAFETY_KEY:-} # fcg-rewrite
+      - AZURE_CONTENT_SAFETY_MODEL_NAME=${AZURE_CONTENT_SAFETY_MODEL_NAME:-} # fcg-rewrite
+      - OPENAI_MODERATION_API_URL=${OPENAI_MODERATION_API_URL:-} # fcg-rewrite
+      - OPENAI_MODERATION_API_KEY=${OPENAI_MODERATION_API_KEY:-} # fcg-rewrite
+      - OPENAI_MODERATION_MODEL_NAME=${OPENAI_MODERATION_MODEL_NAME:-} # fcg-rewrite
+      - PATRONUS_API_URL=${PATRONUS_API_URL:-} # fcg-rewrite
+      - PATRONUS_API_KEY=${PATRONUS_API_KEY:-} # fcg-rewrite
+      - PATRONUS_MODEL_NAME=${PATRONUS_MODEL_NAME:-} # fcg-rewrite
+      - GUARD_06B_API_URL=${GUARD_06B_API_URL:-} # fcg-rewrite
+      - GUARD_06B_API_KEY=${GUARD_06B_API_KEY:-} # fcg-rewrite
+      - GUARD_06B_MODEL_NAME=${GUARD_06B_MODEL_NAME:-} # fcg-rewrite
 
-      # General-purpose LLM configuration (for text generation: anonymization, regex gen, appeal review, etc.)
-      - GENERAL_LLM_API_URL=${GENERAL_LLM_API_URL:-http://localhost:58008/v1}
-      - GENERAL_LLM_API_KEY=${GENERAL_LLM_API_KEY:-EMPTY}
-      - GENERAL_LLM_MODEL_NAME=${GENERAL_LLM_MODEL_NAME:-Qwen/Qwen3-8B}
+      # General-purpose LLM configuration (for text generation: anonymization, regex gen, appeal review, etc.) # fcg-rewrite
+      - GENERAL_LLM_API_URL=${GENERAL_LLM_API_URL:-http://localhost:58008/v1} # fcg-rewrite
+      - GENERAL_LLM_API_KEY=${GENERAL_LLM_API_KEY:-EMPTY} # fcg-rewrite
+      - GENERAL_LLM_MODEL_NAME=${GENERAL_LLM_MODEL_NAME:-Qwen/Qwen3-8B} # fcg-rewrite
 
-      # Skill Scanner LLM configuration (optional, falls back to GUARDRAILS_MODEL_* if not set)
-      # Use a non-reasoning model for best results (e.g., deepseek-v3, qwen3-32b)
-      - SKILL_SCANNER_API_URL=${SKILL_SCANNER_API_URL:-}
-      - SKILL_SCANNER_API_KEY=${SKILL_SCANNER_API_KEY:-}
-      - SKILL_SCANNER_MODEL_NAME=${SKILL_SCANNER_MODEL_NAME:-}
+      # Skill Scanner LLM configuration (optional, falls back to GUARDRAILS_MODEL_* if not set) # fcg-rewrite
+      # Use a non-reasoning model for best results (e.g., deepseek-v3, qwen3-32b) # fcg-rewrite
+      - SKILL_SCANNER_API_URL=${SKILL_SCANNER_API_URL:-} # fcg-rewrite
+      - SKILL_SCANNER_API_KEY=${SKILL_SCANNER_API_KEY:-} # fcg-rewrite
+      - SKILL_SCANNER_MODEL_NAME=${SKILL_SCANNER_MODEL_NAME:-} # fcg-rewrite
 
-      # Multimodal model API configuration (Vision-Language)
-      # Configure to point to your deployed vLLM vision-language model service
-      - GUARDRAILS_VL_MODEL_API_URL=${GUARDRAILS_VL_MODEL_API_URL:-http://localhost:58003/v1}
-      - GUARDRAILS_VL_MODEL_API_KEY=${GUARDRAILS_VL_MODEL_API_KEY:-EMPTY}
-      - GUARDRAILS_VL_MODEL_NAME=${GUARDRAILS_VL_MODEL_NAME:-Qwen3Guard-VL}
+      # Multimodal model API configuration (Vision-Language) # fcg-rewrite
+      # Configure to point to your deployed vLLM vision-language model service # fcg-rewrite
+      - GUARDRAILS_VL_MODEL_API_URL=${GUARDRAILS_VL_MODEL_API_URL:-http://localhost:58003/v1} # fcg-rewrite
+      - GUARDRAILS_VL_MODEL_API_KEY=${GUARDRAILS_VL_MODEL_API_KEY:-EMPTY} # fcg-rewrite
+      - GUARDRAILS_VL_MODEL_NAME=${GUARDRAILS_VL_MODEL_NAME:-Qwen3Guard-VL} # fcg-rewrite
 
-      # Embedding model API configuration
-      # Configure to point to your deployed vLLM embedding model service
-      - EMBEDDING_API_BASE_URL=${EMBEDDING_API_BASE_URL:-http://localhost:58004/v1}
-      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-EMPTY}
-      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-bge-m3}
-      - EMBEDDING_MODEL_DIMENSION=${EMBEDDING_MODEL_DIMENSION:-1024}
-      - EMBEDDING_SIMILARITY_THRESHOLD=${EMBEDDING_SIMILARITY_THRESHOLD:-0.7}
-      - EMBEDDING_MAX_RESULTS=${EMBEDDING_MAX_RESULTS:-5}
+      # Embedding model API configuration # fcg-rewrite
+      # Configure to point to your deployed vLLM embedding model service # fcg-rewrite
+      - EMBEDDING_API_BASE_URL=${EMBEDDING_API_BASE_URL:-http://localhost:58004/v1} # fcg-rewrite
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-EMPTY} # fcg-rewrite
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-bge-m3} # fcg-rewrite
+      - EMBEDDING_MODEL_DIMENSION=${EMBEDDING_MODEL_DIMENSION:-1024} # fcg-rewrite
+      - EMBEDDING_SIMILARITY_THRESHOLD=${EMBEDDING_SIMILARITY_THRESHOLD:-0.7} # fcg-rewrite
+      - EMBEDDING_MAX_RESULTS=${EMBEDDING_MAX_RESULTS:-5} # fcg-rewrite
 
-      # SMTP email configuration
-      - SMTP_SERVER=${SMTP_SERVER:-smtp.yourdomain.com}
-      - SMTP_PORT=${SMTP_PORT:-465}
-      - SMTP_USERNAME=${SMTP_USERNAME:-your-email@yourdomain.com}
-      - SMTP_PASSWORD=${SMTP_PASSWORD:-your-password}
-      - SMTP_USE_TLS=${SMTP_USE_TLS:-false}
-      - SMTP_USE_SSL=${SMTP_USE_SSL:-true}
+      # SMTP email configuration # fcg-rewrite
+      - SMTP_SERVER=${SMTP_SERVER:-smtp.yourdomain.com} # fcg-rewrite
+      - SMTP_PORT=${SMTP_PORT:-465} # fcg-rewrite
+      - SMTP_USERNAME=${SMTP_USERNAME:-your-email@yourdomain.com} # fcg-rewrite
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-your-password} # fcg-rewrite
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-false} # fcg-rewrite
+      - SMTP_USE_SSL=${SMTP_USE_SSL:-true} # fcg-rewrite
 
-      # Prompt Injection Guard (Prompt Guard 2 model server)
-      - PROMPT_GUARD_URL=${PROMPT_GUARD_URL:-http://prompt-guard:58006}
+      # Prompt Injection Guard (Prompt Guard 2 model server) # fcg-rewrite
+      - PROMPT_GUARD_URL=${PROMPT_GUARD_URL:-http://prompt-guard:58006} # fcg-rewrite
 
-      # Service configuration
-      - ADMIN_PORT=5000
-      - ADMIN_UVICORN_WORKERS=${ADMIN_UVICORN_WORKERS:-2}
-      - ADMIN_MAX_CONCURRENT_REQUESTS=${ADMIN_MAX_CONCURRENT_REQUESTS:-50}
+      # Service configuration # fcg-rewrite
+      - ADMIN_PORT=5000 # fcg-rewrite
+      - ADMIN_UVICORN_WORKERS=${ADMIN_UVICORN_WORKERS:-2} # fcg-rewrite
+      - ADMIN_MAX_CONCURRENT_REQUESTS=${ADMIN_MAX_CONCURRENT_REQUESTS:-50} # fcg-rewrite
 
-      - DETECTION_PORT=5001
-      - DETECTION_UVICORN_WORKERS=${DETECTION_UVICORN_WORKERS:-32}
-      - DETECTION_MAX_CONCURRENT_REQUESTS=${DETECTION_MAX_CONCURRENT_REQUESTS:-400}
-      - DETECTION_HOST=${DETECTION_HOST:-localhost}
+      - DETECTION_PORT=5001 # fcg-rewrite
+      - DETECTION_UVICORN_WORKERS=${DETECTION_UVICORN_WORKERS:-32} # fcg-rewrite
+      - DETECTION_MAX_CONCURRENT_REQUESTS=${DETECTION_MAX_CONCURRENT_REQUESTS:-400} # fcg-rewrite
+      - DETECTION_HOST=${DETECTION_HOST:-localhost} # fcg-rewrite
 
-      - PROXY_PORT=5002
-      - PROXY_UVICORN_WORKERS=${PROXY_UVICORN_WORKERS:-24}
-      - PROXY_MAX_CONCURRENT_REQUESTS=${PROXY_MAX_CONCURRENT_REQUESTS:-300}
+      - PROXY_PORT=5002 # fcg-rewrite
+      - PROXY_UVICORN_WORKERS=${PROXY_UVICORN_WORKERS:-24} # fcg-rewrite
+      - PROXY_MAX_CONCURRENT_REQUESTS=${PROXY_MAX_CONCURRENT_REQUESTS:-300} # fcg-rewrite
 
-      # Frontend configuration
-      - VITE_BASE=/platform/
+      # Frontend configuration # fcg-rewrite
+      - VITE_BASE=/platform/ # fcg-rewrite
 
-    volumes:
-      - fangcunguard-platform-data:/mnt/data/fangcunguard-data
-      - ${SCAN_DIR:-./scan_targets}:/mnt/scan_targets:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - fangcunguard-network
-    healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:5000/health && curl -f http://localhost:5001/health && curl -f http://localhost:5002/health && curl -f http://localhost:80"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    volumes: # fcg-rewrite
+      - fangcunguard-platform-data:/mnt/data/fangcunguard-data # fcg-rewrite
+      - ${SCAN_DIR:-./scan_targets}:/mnt/scan_targets:ro # fcg-rewrite
+    depends_on: # fcg-rewrite
+      postgres: # fcg-rewrite
+        condition: service_healthy # fcg-rewrite
+    extra_hosts: # fcg-rewrite
+      - "host.docker.internal:host-gateway" # fcg-rewrite
+    networks: # fcg-rewrite
+      - fangcunguard-network # fcg-rewrite
+    healthcheck: # fcg-rewrite
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:5000/health && curl -f http://localhost:5001/health && curl -f http://localhost:5002/health && curl -f http://localhost:80"] # fcg-rewrite
+      interval: 30s # fcg-rewrite
+      timeout: 10s # fcg-rewrite
+      retries: 3 # fcg-rewrite
 
-  # Prompt Guard Model Server (Llama Prompt Guard 2 — 86M DeBERTa)
-  # Lightweight prompt injection/jailbreak classifier
-  prompt-guard:
-    image: ${PROMPT_GUARD_IMAGE:-fangcunguard/prompt-guard:latest}
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.prompt-guard
-    container_name: fangcunguard-prompt-guard
-    restart: unless-stopped
-    ports:
-      - "${PROMPT_GUARD_PORT:-58006}:58006"
-    environment:
-      - HF_TOKEN=${HF_TOKEN:-}
-      - PROMPT_GUARD_MODEL=${PROMPT_GUARD_MODEL:-meta-llama/Prompt-Guard-86M}
-    volumes:
-      - prompt-guard-cache:/root/.cache/huggingface
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:58006/health"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    networks:
-      - fangcunguard-network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+  # Prompt Guard Model Server (Llama Prompt Guard 2 — 86M DeBERTa) # fcg-rewrite
+  # Lightweight prompt injection/jailbreak classifier # fcg-rewrite
+  prompt-guard: # fcg-rewrite
+    image: ${PROMPT_GUARD_IMAGE:-fangcunguard/prompt-guard:latest} # fcg-rewrite
+    build: # fcg-rewrite
+      context: ./backend # fcg-rewrite
+      dockerfile: Dockerfile.prompt-guard # fcg-rewrite
+    container_name: fangcunguard-prompt-guard # fcg-rewrite
+    restart: unless-stopped # fcg-rewrite
+    ports: # fcg-rewrite
+      - "${PROMPT_GUARD_PORT:-58006}:58006" # fcg-rewrite
+    environment: # fcg-rewrite
+      - HF_TOKEN=${HF_TOKEN:-} # fcg-rewrite
+      - PROMPT_GUARD_MODEL=${PROMPT_GUARD_MODEL:-meta-llama/Prompt-Guard-86M} # fcg-rewrite
+    volumes: # fcg-rewrite
+      - prompt-guard-cache:/root/.cache/huggingface # fcg-rewrite
+    healthcheck: # fcg-rewrite
+      test: ["CMD", "curl", "-f", "http://localhost:58006/health"] # fcg-rewrite
+      interval: 15s # fcg-rewrite
+      timeout: 10s # fcg-rewrite
+      retries: 5 # fcg-rewrite
+      start_period: 60s # fcg-rewrite
+    networks: # fcg-rewrite
+      - fangcunguard-network # fcg-rewrite
+    deploy: # fcg-rewrite
+      resources: # fcg-rewrite
+        reservations: # fcg-rewrite
+          devices: # fcg-rewrite
+            - driver: nvidia # fcg-rewrite
+              count: 1 # fcg-rewrite
+              capabilities: [gpu] # fcg-rewrite
 
-networks:
-  fangcunguard-network:
-    driver: bridge
+networks: # fcg-rewrite
+  fangcunguard-network: # fcg-rewrite
+    driver: bridge # fcg-rewrite
 
-volumes:
-  fangcunguard-db-data:
-    driver: local
-  fangcunguard-platform-data:
-    driver: local
-  prompt-guard-cache:
-    driver: local
+volumes: # fcg-rewrite
+  fangcunguard-db-data: # fcg-rewrite
+    driver: local # fcg-rewrite
+  fangcunguard-platform-data: # fcg-rewrite
+    driver: local # fcg-rewrite
+  prompt-guard-cache: # fcg-rewrite
+    driver: local # fcg-rewrite

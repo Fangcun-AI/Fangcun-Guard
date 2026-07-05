@@ -1,64 +1,41 @@
-/**
- * Billing and subscription API service
- */
+import api from './api'
+import type {
+  Subscription,
+  SubscriptionListItem,
+  UpdateSubscriptionRequest,
+  UsageInfo,
+} from '../types/billing'
 
-import api from './api';
-import type { Subscription, UsageInfo, SubscriptionListItem, UpdateSubscriptionRequest } from '../types/billing';
+type SubscriptionQuery = {
+  skip?: number
+  limit?: number
+  search?: string
+  subscription_type?: 'free' | 'subscribed'
+  sort_by?: 'current_month_usage' | 'usage_reset_at'
+  sort_order?: 'asc' | 'desc'
+}
+
+const body = <T>(request: Promise<{ data: T }>): Promise<T> =>
+  request.then(({ data }) => data)
+const payload = <T>(request: Promise<{ data: { data: T } }>): Promise<T> =>
+  request.then(({ data }) => data.data)
+const subscriptionPath = (tenantId: string) =>
+  `/api/v1/admin/billing/subscriptions/${tenantId}`
 
 export const billingService = {
-  /**
-   * Get current user's subscription information
-   */
-  async getCurrentSubscription(): Promise<Subscription> {
-    const response = await api.get('/api/v1/billing/subscription');
-    return response.data;
-  },
-
-  /**
-   * Get current user's usage statistics
-   */
-  async getCurrentUsage(): Promise<UsageInfo> {
-    const response = await api.get('/api/v1/billing/usage');
-    return response.data.data;
-  },
-
-  /**
-   * List all subscriptions (admin only)
-   */
-  async listAllSubscriptions(params?: {
-    skip?: number;
-    limit?: number;
-    search?: string;
-    subscription_type?: 'free' | 'subscribed';
-    sort_by?: 'current_month_usage' | 'usage_reset_at';
-    sort_order?: 'asc' | 'desc';
-  }): Promise<{ data: SubscriptionListItem[]; total: number }> {
-    const response = await api.get('/api/v1/admin/billing/subscriptions', { params });
-    return {
-      data: response.data.data,
-      total: response.data.total
-    };
-  },
-
-  /**
-   * Update tenant subscription type (admin only)
-   */
+  getCurrentSubscription: (): Promise<Subscription> =>
+    body(api.get('/api/v1/billing/subscription')),
+  getCurrentUsage: (): Promise<UsageInfo> =>
+    payload(api.get('/api/v1/billing/usage')),
+  listAllSubscriptions: (params?: SubscriptionQuery):
+    Promise<{ data: SubscriptionListItem[]; total: number }> =>
+    body(api.get('/api/v1/admin/billing/subscriptions', { params })),
   async updateSubscription(tenantId: string, data: UpdateSubscriptionRequest): Promise<void> {
-    await api.put(`/api/v1/admin/billing/subscriptions/${tenantId}`, data);
+    await api.put(subscriptionPath(tenantId), data)
   },
-
-  /**
-   * Reset tenant's monthly quota (admin only)
-   */
   async resetTenantQuota(tenantId: string): Promise<void> {
-    await api.post(`/api/v1/admin/billing/subscriptions/${tenantId}/reset-quota`);
+    await api.post(`${subscriptionPath(tenantId)}/reset-quota`)
   },
-
-  /**
-   * Reset all tenants' monthly quotas (admin only)
-   */
-  async resetAllQuotas(): Promise<{ reset_count: number }> {
-    const response = await api.post('/api/v1/admin/billing/reset-all-quotas');
-    return response.data.data;
-  }
-};
+  resetAllQuotas: (): Promise<{ reset_count: number }> =>
+    payload(api.post('/api/v1/admin/billing/reset-all-quotas')),
+}

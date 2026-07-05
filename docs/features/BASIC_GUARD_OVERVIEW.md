@@ -1,4 +1,4 @@
-# Basic Guard Overview
+# Fangcun Core Shield Overview
 
 ## 1. Background
 
@@ -11,11 +11,11 @@ As large language models are widely adopted across industries, AI systems face a
 - In streaming output scenarios, malicious content cannot be detected in real time during token-by-token transmission
 - Malicious users repeatedly sending high-risk requests, consuming system resources
 
-Basic Guard is Fangcun Guard's foundational safety plugin, providing comprehensive baseline protection from content safety detection and data leakage prevention to streaming output auditing. It serves as the front layer for all other safety plugins — every request passes through Basic Guard's detection first.
+Fangcun Core Shield is Fangcun Guard's foundational safety plugin, providing comprehensive baseline protection from content safety detection and data leakage prevention to streaming output auditing. It serves as the front layer for all other safety plugins — every request passes through Fangcun Core Shield first.
 
 ## 2. Technical Overview
 
-Basic Guard's capabilities are divided into two parts: the **Core Detection System** (running in the Fangcun Guard main service) and **Streaming Output Safety Detection** (running in the basic_guard plugin hooks).
+Fangcun Core Shield's capabilities are divided into two parts: the **Core Detection System** (running in the Fangcun Guard main service) and **Streaming Output Safety Detection** (running in the `basic_guard` plugin hooks).
 
 ### 2.1 Core Detection System
 

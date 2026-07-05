@@ -1,35 +1,39 @@
-/**
- * Copy text to clipboard with fallback for non-HTTPS environments
- * navigator.clipboard API is only available in secure contexts (HTTPS)
- * This utility provides a fallback using execCommand for HTTP environments
- */
-export async function copyToClipboard(text: string): Promise<void> {
-  // Try modern clipboard API first (only works in HTTPS)
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
+const useLegacyClipboardCopy = (text: string): void => {
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.setAttribute('readonly', '');
+  textArea.style.cssText = [
+    'border:0',
+    'height:1px',
+    'left:-9999px',
+    'opacity:0',
+    'padding:0',
+    'position:fixed',
+    'top:0',
+    'width:1px',
+  ].join(';');
 
-  // Fallback for HTTP environments using execCommand
-  const textArea = document.createElement('textarea')
-  textArea.value = text
-
-  // Avoid scrolling to bottom
-  textArea.style.top = '0'
-  textArea.style.left = '0'
-  textArea.style.position = 'fixed'
-  textArea.style.opacity = '0'
-
-  document.body.appendChild(textArea)
-  textArea.focus()
-  textArea.select()
+  document.body.appendChild(textArea);
+  textArea.select();
 
   try {
-    const successful = document.execCommand('copy')
-    if (!successful) {
-      throw new Error('execCommand copy failed')
+    if (!document.execCommand('copy')) {
+      throw new Error('Legacy clipboard command returned false');
     }
   } finally {
-    document.body.removeChild(textArea)
+    textArea.remove();
   }
+};
+
+export async function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (error) {
+      console.warn('Navigator clipboard API failed, falling back to textarea copy:', error);
+    }
+  }
+
+  useLegacyClipboardCopy(text);
 }

@@ -1,6 +1,0 @@
-/* Login page responsive overrides */
-@media (max-width: 480px) {
-  .login-container {
-    padding: 10px;
-  }
-}

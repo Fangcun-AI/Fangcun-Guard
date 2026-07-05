@@ -1,4 +1,4 @@
-# Basic Guard 概述
+# Fangcun Core Shield 概述
 
 ## 1. 项目背景
 
@@ -11,11 +11,11 @@
 - 流式输出场景中，恶意内容在逐 token 传输过程中无法被实时检测
 - 恶意用户反复发起高风险请求，消耗系统资源
 
-Basic Guard 是 Fangcun Guard 的安全基座插件，提供从内容安全检测、数据泄露防护到流式输出审计的全方位基础防护能力。它是其他所有安全插件的前置层，所有请求都会先经过 Basic Guard 的检测。
+Fangcun Core Shield 是 Fangcun Guard 的安全基座插件，提供从内容安全检测、数据泄露防护到流式输出审计的全方位基础防护能力。它是其他所有安全插件的前置层，所有请求都会先经过 Fangcun Core Shield 的检测。
 
 ## 2. 技术现状
 
-Basic Guard 的能力分为两部分：**核心检测系统**（运行在 Fangcun Guard 主服务中）和 **流式输出安全检测**（运行在 basic_guard 插件 Hook 中）。
+Fangcun Core Shield 的能力分为两部分：**核心检测系统**（运行在 Fangcun Guard 主服务中）和 **流式输出安全检测**（运行在 `basic_guard` 插件 Hook 中）。
 
 ### 2.1 核心检测系统
 

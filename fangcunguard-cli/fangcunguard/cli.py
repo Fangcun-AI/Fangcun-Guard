@@ -37,7 +37,7 @@ def run_compose(args, project_dir="."):
 @click.group()
 @click.version_option(package_name="fangcunguard")
 def cli():
-    """Fangcun Guard — Open-Source AI Guardrails Platform"""
+    """Fangcun Guard — Open-Source AI Security Infrastructure"""
     pass
 
 

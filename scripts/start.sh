@@ -1,196 +1,196 @@
-#!/bin/bash
+#!/bin/bash # fcg-rewrite
 
-# FangcunGuard Platform Start Script
+# FangcunGuard Platform Start Script # fcg-rewrite
 
-echo "🛡️  FangcunGuard Platform Start Script"
-echo "========================================"
+echo "🛡️  FangcunGuard Platform Start Script" # fcg-rewrite
+echo "========================================" # fcg-rewrite
 
-# Check Python environment
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python3 not installed, please install Python3"
-    echo "   Installation guide: https://www.python.org/downloads/"
-    exit 1
-fi
+# Check Python environment # fcg-rewrite
+if ! command -v python3 &> /dev/null; then # fcg-rewrite
+    echo "❌ Python3 not installed, please install Python3" # fcg-rewrite
+    echo "   Installation guide: https://www.python.org/downloads/" # fcg-rewrite
+    exit 1 # fcg-rewrite
+fi # fcg-rewrite
 
-# Check pip
-if ! command -v pip3 &> /dev/null; then
-    echo "❌ pip3 not installed, please install pip3"
-    exit 1
-fi
+# Check pip # fcg-rewrite
+if ! command -v pip3 &> /dev/null; then # fcg-rewrite
+    echo "❌ pip3 not installed, please install pip3" # fcg-rewrite
+    exit 1 # fcg-rewrite
+fi # fcg-rewrite
 
-# Check Node.js environment (for frontend)
-if ! command -v node &> /dev/null; then
-    echo "❌ Node.js not installed, please install Node.js"
-    echo "   Installation guide: https://nodejs.org/"
-    exit 1
-fi
+# Check Node.js environment (for frontend) # fcg-rewrite
+if ! command -v node &> /dev/null; then # fcg-rewrite
+    echo "❌ Node.js not installed, please install Node.js" # fcg-rewrite
+    echo "   Installation guide: https://nodejs.org/" # fcg-rewrite
+    exit 1 # fcg-rewrite
+fi # fcg-rewrite
 
-# Check npm
-if ! command -v npm &> /dev/null; then
-    echo "❌ npm not installed, please install npm"
-    exit 1
-fi
+# Check npm # fcg-rewrite
+if ! command -v npm &> /dev/null; then # fcg-rewrite
+    echo "❌ npm not installed, please install npm" # fcg-rewrite
+    exit 1 # fcg-rewrite
+fi # fcg-rewrite
 
-# Create necessary directories
-echo "📁 Create necessary directories..."
-mkdir -p logs backend/config data/logs
+# Create necessary directories # fcg-rewrite
+echo "📁 Create necessary directories..." # fcg-rewrite
+mkdir -p logs backend/config data/logs # fcg-rewrite
 
-# Set permissions
-chmod 755 logs backend/config data/logs
+# Set permissions # fcg-rewrite
+chmod 755 logs backend/config data/logs # fcg-rewrite
 
-# Check port occupancy
-echo "🔍 Check port occupancy..."
-if lsof -Pi :3000 -sTCP:LISTEN -t >/dev/null 2>&1; then
-echo "⚠️  Port 3000 is occupied, please stop related services or modify configuration"
-fi
+# Check port occupancy # fcg-rewrite
+echo "🔍 Check port occupancy..." # fcg-rewrite
+if lsof -Pi :3000 -sTCP:LISTEN -t >/dev/null 2>&1; then # fcg-rewrite
+echo "⚠️  Port 3000 is occupied, please stop related services or modify configuration" # fcg-rewrite
+fi # fcg-rewrite
 
-if lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "⚠️  Port 5000 is occupied, please stop related services or modify configuration"
-fi
+if lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null 2>&1; then # fcg-rewrite
+    echo "⚠️  Port 5000 is occupied, please stop related services or modify configuration" # fcg-rewrite
+fi # fcg-rewrite
 
-if lsof -Pi :5001 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "⚠️  Port 5001 is occupied, please stop related services or modify configuration"
-fi
+if lsof -Pi :5001 -sTCP:LISTEN -t >/dev/null 2>&1; then # fcg-rewrite
+    echo "⚠️  Port 5001 is occupied, please stop related services or modify configuration" # fcg-rewrite
+fi # fcg-rewrite
 
-if lsof -Pi :5002 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "⚠️  Port 5002 is occupied, please stop related services or modify configuration"
-fi
+if lsof -Pi :5002 -sTCP:LISTEN -t >/dev/null 2>&1; then # fcg-rewrite
+    echo "⚠️  Port 5002 is occupied, please stop related services or modify configuration" # fcg-rewrite
+fi # fcg-rewrite
 
-# Stop possible running services
-echo "🧹 Stop possible running services..."
-if [ -f "/tmp/fangcunguard_services.pid" ]; then
-    PIDS=$(cat /tmp/fangcunguard_services.pid)
-    for PID in $PIDS; do
-        if kill -0 $PID 2>/dev/null; then
-            echo "Stop service PID: $PID"
-            kill $PID 2>/dev/null
-        fi
-    done
-    rm -f /tmp/fangcunguard_services.pid
-fi
+# Stop possible running services # fcg-rewrite
+echo "🧹 Stop possible running services..." # fcg-rewrite
+if [ -f "/tmp/fangcunguard_services.pid" ]; then # fcg-rewrite
+    PIDS=$(cat /tmp/fangcunguard_services.pid) # fcg-rewrite
+    for PID in $PIDS; do # fcg-rewrite
+        if kill -0 $PID 2>/dev/null; then # fcg-rewrite
+            echo "Stop service PID: $PID" # fcg-rewrite
+            kill $PID 2>/dev/null # fcg-rewrite
+        fi # fcg-rewrite
+    done # fcg-rewrite
+    rm -f /tmp/fangcunguard_services.pid # fcg-rewrite
+fi # fcg-rewrite
 
-# Stop possible running Python processes
-pkill -f "start_detection_service.py" 2>/dev/null || true
-pkill -f "start_admin_service.py" 2>/dev/null || true
-pkill -f "start_proxy_service.py" 2>/dev/null || true
+# Stop possible running Python processes # fcg-rewrite
+pkill -f "start_detection_service.py" 2>/dev/null || true # fcg-rewrite
+pkill -f "start_admin_service.py" 2>/dev/null || true # fcg-rewrite
+pkill -f "start_proxy_service.py" 2>/dev/null || true # fcg-rewrite
 
-# Enter backend directory
-cd backend
+# Enter backend directory # fcg-rewrite
+cd backend # fcg-rewrite
 
-# Set environment variable
-export PYTHONPATH="$PWD:$PYTHONPATH"
+# Set environment variable # fcg-rewrite
+export PYTHONPATH="$PWD:$PYTHONPATH" # fcg-rewrite
 
-# Check Python dependencies
-echo "📦 Check Python dependencies..."
-if [ ! -f "requirements.txt" ]; then
-    echo "❌ requirements.txt file not found"
-    exit 1
-fi
+# Check Python dependencies # fcg-rewrite
+echo "📦 Check Python dependencies..." # fcg-rewrite
+if [ ! -f "requirements.txt" ]; then # fcg-rewrite
+    echo "❌ requirements.txt file not found" # fcg-rewrite
+    exit 1 # fcg-rewrite
+fi # fcg-rewrite
 
-# Install Python dependencies
-echo "📦 Install Python dependencies..."
-pip3 install -r requirements.txt
+# Install Python dependencies # fcg-rewrite
+echo "📦 Install Python dependencies..." # fcg-rewrite
+pip3 install -r requirements.txt # fcg-rewrite
 
-# Start all services
-echo "🚀 Start all services..."
-bash start_all_services.sh &
-SERVICES_PID=$!
+# Start all services # fcg-rewrite
+echo "🚀 Start all services..." # fcg-rewrite
+bash start_all_services.sh & # fcg-rewrite
+SERVICES_PID=$! # fcg-rewrite
 
-# Wait for services to start
-echo "⏳ Wait for services to start..."
-sleep 5
+# Wait for services to start # fcg-rewrite
+echo "⏳ Wait for services to start..." # fcg-rewrite
+sleep 5 # fcg-rewrite
 
-# Check service status
-echo "🔍 Check service status..."
-for i in {1..30}; do
-    if curl -f http://localhost:5000/health >/dev/null 2>&1; then
-        echo "✅ Management service started (port 5000)"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "❌ Management service startup timeout"
-    fi
-    sleep 2
-done
+# Check service status # fcg-rewrite
+echo "🔍 Check service status..." # fcg-rewrite
+for i in {1..30}; do # fcg-rewrite
+    if curl -f http://localhost:5000/health >/dev/null 2>&1; then # fcg-rewrite
+        echo "✅ Management service started (port 5000)" # fcg-rewrite
+        break # fcg-rewrite
+    fi # fcg-rewrite
+    if [ $i -eq 30 ]; then # fcg-rewrite
+        echo "❌ Management service startup timeout" # fcg-rewrite
+    fi # fcg-rewrite
+    sleep 2 # fcg-rewrite
+done # fcg-rewrite
 
-for i in {1..30}; do
-    if curl -f http://localhost:5001/health >/dev/null 2>&1; then
-        echo "✅ Detection service started (port 5001)"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "❌ Detection service startup timeout"
-    fi
-    sleep 2
-done
+for i in {1..30}; do # fcg-rewrite
+    if curl -f http://localhost:5001/health >/dev/null 2>&1; then # fcg-rewrite
+        echo "✅ Detection service started (port 5001)" # fcg-rewrite
+        break # fcg-rewrite
+    fi # fcg-rewrite
+    if [ $i -eq 30 ]; then # fcg-rewrite
+        echo "❌ Detection service startup timeout" # fcg-rewrite
+    fi # fcg-rewrite
+    sleep 2 # fcg-rewrite
+done # fcg-rewrite
 
-for i in {1..30}; do
-    if curl -f http://localhost:5002/health >/dev/null 2>&1; then
-        echo "✅ Proxy service started (port 5002)"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "❌ Proxy service startup timeout"
-    fi
-    sleep 2
-done
+for i in {1..30}; do # fcg-rewrite
+    if curl -f http://localhost:5002/health >/dev/null 2>&1; then # fcg-rewrite
+        echo "✅ Proxy service started (port 5002)" # fcg-rewrite
+        break # fcg-rewrite
+    fi # fcg-rewrite
+    if [ $i -eq 30 ]; then # fcg-rewrite
+        echo "❌ Proxy service startup timeout" # fcg-rewrite
+    fi # fcg-rewrite
+    sleep 2 # fcg-rewrite
+done # fcg-rewrite
 
-# Start frontend service
-echo "🌐 Start frontend service..."
-cd ../frontend
+# Start frontend service # fcg-rewrite
+echo "🌐 Start frontend service..." # fcg-rewrite
+cd ../frontend # fcg-rewrite
 
-# Check frontend dependencies
-if [ ! -f "package.json" ]; then
-    echo "❌ package.json file not found"
-    exit 1
-fi
+# Check frontend dependencies # fcg-rewrite
+if [ ! -f "package.json" ]; then # fcg-rewrite
+    echo "❌ package.json file not found" # fcg-rewrite
+    exit 1 # fcg-rewrite
+fi # fcg-rewrite
 
-# Install frontend dependencies
-echo "📦 Install frontend dependencies..."
-npm install
+# Install frontend dependencies # fcg-rewrite
+echo "📦 Install frontend dependencies..." # fcg-rewrite
+npm install # fcg-rewrite
 
-# Start frontend service
-echo "🚀 Start frontend service..."
-npm run dev &
-FRONTEND_PID=$!
+# Start frontend service # fcg-rewrite
+echo "🚀 Start frontend service..." # fcg-rewrite
+npm run dev & # fcg-rewrite
+FRONTEND_PID=$! # fcg-rewrite
 
-# Wait for frontend service to start
-echo "⏳ Wait for frontend service to start..."
-for i in {1..30}; do
-    if curl -f http://localhost:3000 >/dev/null 2>&1; then
-        echo "✅ Frontend service started (port 3000)"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "⚠️  Frontend service may take longer to start"
-    fi
-    sleep 2
-done
+# Wait for frontend service to start # fcg-rewrite
+echo "⏳ Wait for frontend service to start..." # fcg-rewrite
+for i in {1..30}; do # fcg-rewrite
+    if curl -f http://localhost:3000 >/dev/null 2>&1; then # fcg-rewrite
+        echo "✅ Frontend service started (port 3000)" # fcg-rewrite
+        break # fcg-rewrite
+    fi # fcg-rewrite
+    if [ $i -eq 30 ]; then # fcg-rewrite
+        echo "⚠️  Frontend service may take longer to start" # fcg-rewrite
+    fi # fcg-rewrite
+    sleep 2 # fcg-rewrite
+done # fcg-rewrite
 
-# Save all PIDs
-echo "$SERVICES_PID $FRONTEND_PID" > /tmp/fangcunguard_all_services.pid
+# Save all PIDs # fcg-rewrite
+echo "$SERVICES_PID $FRONTEND_PID" > /tmp/fangcunguard_all_services.pid # fcg-rewrite
 
-echo ""
-echo "🎉 All services started!"
-echo ""
-echo "📊 Access address:"
-echo "   🌐 Frontend management interface: http://localhost:3000"
-echo "   📖 Management API documentation: http://localhost:5000/docs"
-echo "   🛡️ Detection API: http://localhost:5001/v1/guardrails"
-echo "   🔄 Proxy API: http://localhost:5002/v1/chat/completions"
-echo ""
-echo "🔑 Default admin account:"
-echo "   Email: admin@fangcunguard.com"
-echo "   Password: admin123456"
-echo "   ⚠️  Please modify the default password in the production environment!"
-echo ""
-echo "🔧 Common commands:"
-echo "   View service logs: tail -f data/logs/*.log"
-echo "   Stop all services: ./scripts/stop.sh"
-echo "   Restart all services: ./scripts/stop.sh && ./scripts/start.sh"
-echo ""
-echo "📚 Documentation:"
-echo "   Project documentation: https://github.com/fangcunguard/fangcunguard"
-echo "   API documentation: http://localhost:5000/docs"
-echo ""
-echo "📧 Technical support: thomas@fangcunguard.com"
+echo "" # fcg-rewrite
+echo "🎉 All services started!" # fcg-rewrite
+echo "" # fcg-rewrite
+echo "📊 Access address:" # fcg-rewrite
+echo "   🌐 Frontend management interface: http://localhost:3000" # fcg-rewrite
+echo "   📖 Management API documentation: http://localhost:5000/docs" # fcg-rewrite
+echo "   🛡️ Detection API: http://localhost:5001/v1/guardrails" # fcg-rewrite
+echo "   🔄 Proxy API: http://localhost:5002/v1/chat/completions" # fcg-rewrite
+echo "" # fcg-rewrite
+echo "🔑 Default admin account:" # fcg-rewrite
+echo "   Email: admin@fangcunguard.com" # fcg-rewrite
+echo "   Password: admin123456" # fcg-rewrite
+echo "   ⚠️  Please modify the default password in the production environment!" # fcg-rewrite
+echo "" # fcg-rewrite
+echo "🔧 Common commands:" # fcg-rewrite
+echo "   View service logs: tail -f data/logs/*.log" # fcg-rewrite
+echo "   Stop all services: ./scripts/stop.sh" # fcg-rewrite
+echo "   Restart all services: ./scripts/stop.sh && ./scripts/start.sh" # fcg-rewrite
+echo "" # fcg-rewrite
+echo "📚 Documentation:" # fcg-rewrite
+echo "   Project documentation: https://github.com/fangcunguard/fangcunguard" # fcg-rewrite
+echo "   API documentation: http://localhost:5000/docs" # fcg-rewrite
+echo "" # fcg-rewrite
+echo "📧 Technical support: thomas@fangcunguard.com" # fcg-rewrite

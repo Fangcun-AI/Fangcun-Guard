@@ -1,4 +1,4 @@
-# Agent Safety Overview
+# Agent Runtime Firewall Overview
 
 ## 1. Background
 
@@ -10,11 +10,11 @@ AI Agents use function calling to invoke external tools to complete tasks, but t
 - Attackers exploit vulnerabilities in tool definitions to construct cross-tool attack chains
 - Agents are manipulated into calling tools excessively, consuming resources or amplifying attack effects
 
-Agent Safety provides three layers of runtime defense, covering tool definition auditing, tool call monitoring, and reasoning chain security auditing — forming a complete protection chain from "what tools look like" to "how tools are used" to "how the Agent thinks."
+Agent Runtime Firewall provides three layers of runtime defense, covering tool definition auditing, tool call monitoring, and reasoning chain security auditing — forming a complete protection chain from "what tools look like" to "how tools are used" to "how the Agent thinks."
 
 ## 2. Technical Overview
 
-Agent Safety uses a three-layer detection architecture, executing at different stages of a request.
+Agent Runtime Firewall uses a three-layer detection architecture, executing at different stages of a request.
 
 ### 2.1 Layer 1: Tool Definition Validation (on_input_check)
 

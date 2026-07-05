@@ -1,231 +1,126 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { authService, UserInfo } from '../services/auth';
-import { adminApi } from '../services/api';
+import React, { ReactNode, createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { adminApi } from '../services/api'
+import { UserInfo, authService } from '../services/auth'
 
 interface SwitchInfo {
-  is_switched: boolean;
-  admin_user?: { id: string; email: string };
-  target_user?: { id: string; email: string; api_key: string };
+  is_switched: boolean
+  admin_user?: { id: string; email: string }
+  target_user?: { id: string; email: string; api_key: string }
 }
-
 interface AuthContextType {
-  user: UserInfo | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  switchInfo: SwitchInfo;
-  login: (email: string, password: string, language?: string) => Promise<{ requiresPasswordChange?: boolean; passwordMessage?: string }>;
-  logout: () => Promise<void>;
-  switchToUser: (userId: string) => Promise<void>;
-  exitSwitch: () => Promise<void>;
-  refreshSwitchStatus: () => Promise<void>;
-  refreshUserInfo: () => Promise<void>;
-  // User switch event listener
-  onUserSwitch: (callback: () => void) => () => void; // Return function to cancel listener
+  user: UserInfo | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  switchInfo: SwitchInfo
+  login: (email: string, password: string, language?: string) => Promise<{ requiresPasswordChange?: boolean; passwordMessage?: string }>
+  logout: () => Promise<void>
+  switchToUser: (userId: string) => Promise<void>
+  exitSwitch: () => Promise<void>
+  refreshSwitchStatus: () => Promise<void>
+  refreshUserInfo: () => Promise<void>
+  onUserSwitch: (callback: () => void) => () => void
 }
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const emptySwitch = (): SwitchInfo => ({ is_switched: false })
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<UserInfo | null>(null)
+  const [isAuthenticated, setAuthenticated] = useState(false)
+  const [isLoading, setLoading] = useState(true)
+  const [switchInfo, setSwitchInfo] = useState<SwitchInfo>(emptySwitch())
+  const [listeners, setListeners] = useState(new Set<() => void>())
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<UserInfo | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [switchInfo, setSwitchInfo] = useState<SwitchInfo>({ is_switched: false });
-  const [switchCallbacks, setSwitchCallbacks] = useState<Set<() => void>>(new Set());
-
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
-
-  const checkAuthStatus = async () => {
-    try {
-      if (authService.isAuthenticated()) {
-        const userInfo = await authService.getCurrentUser();
-        setUser(userInfo);
-        setIsAuthenticated(true);
-        
-        // Set user language preference if available
-        if (userInfo.language) {
-          localStorage.setItem('i18nextLng', userInfo.language);
-          // Trigger language change without page reload
-          const i18n = (await import('../i18n')).default;
-          await i18n.changeLanguage(userInfo.language);
-        }
-        
-        // Check user switch status
-        await refreshSwitchStatus();
-      } else {
-        setUser(null);
-        setIsAuthenticated(false);
-        setSwitchInfo({ is_switched: false });
-      }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      setUser(null);
-      setIsAuthenticated(false);
-      setSwitchInfo({ is_switched: false });
-      authService.clearToken();
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  const applyLanguage = async (current: UserInfo) => {
+    if (!current.language) return
+    localStorage.setItem('i18nextLng', current.language)
+    await (await import('../i18n')).default.changeLanguage(current.language)
+  }
+  const clearIdentity = () => {
+    setUser(null)
+    setAuthenticated(false)
+    setSwitchInfo(emptySwitch())
+  }
   const refreshSwitchStatus = async () => {
-    try {
-      const response = await adminApi.getCurrentSwitch();
-      setSwitchInfo(response);
-    } catch (error) {
-      // If not super admin or no switch permission, ignore error
-      setSwitchInfo({ is_switched: false });
-    }
-  };
-
+    try { setSwitchInfo(await adminApi.getCurrentSwitch()) } catch { setSwitchInfo(emptySwitch()) }
+  }
   const refreshUserInfo = async () => {
+    if (!authService.isAuthenticated()) return
     try {
-      if (authService.isAuthenticated()) {
-        const userInfo = await authService.getCurrentUser();
-        setUser(userInfo);
-        
-        // Update language preference if changed
-        if (userInfo.language) {
-          localStorage.setItem('i18nextLng', userInfo.language);
-          // Trigger language change without page reload
-          const i18n = (await import('../i18n')).default;
-          await i18n.changeLanguage(userInfo.language);
-        }
-      }
+      const current = await authService.getCurrentUser()
+      setUser(current)
+      await applyLanguage(current)
     } catch (error) {
-      console.error('Failed to refresh user info:', error);
+      console.error('Failed to refresh user info:', error)
     }
-  };
+  }
+  const checkSession = async () => {
+    try {
+      if (!authService.isAuthenticated()) return clearIdentity()
+      const current = await authService.getCurrentUser()
+      setUser(current)
+      setAuthenticated(true)
+      await applyLanguage(current)
+      await refreshSwitchStatus()
+    } catch {
+      authService.clearToken()
+      clearIdentity()
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { void checkSession() }, [])
 
   const login = async (email: string, password: string, language?: string) => {
-    try {
-      const response = await authService.login({ email, password, language });
-      authService.setToken(response.access_token);
-
-      const userInfo = await authService.getCurrentUser();
-      setUser(userInfo);
-      setIsAuthenticated(true);
-
-      // Set language preference after successful login
-      if (userInfo.language) {
-        localStorage.setItem('i18nextLng', userInfo.language);
-        // Trigger language change without page reload
-        const i18n = (await import('../i18n')).default;
-        await i18n.changeLanguage(userInfo.language);
-      }
-
-      // Refresh switch status after login, avoid 401 prompt due to concurrent requests on homepage
-      try {
-        await refreshSwitchStatus();
-      } catch (e) {
-        // Ignore switch status error
-      }
-
-      return {
-        requiresPasswordChange: response.requires_password_change,
-        passwordMessage: response.password_message
-      };
-    } catch (error) {
-      console.error('Login failed:', error);
-      throw error;
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await authService.logout();
-    } catch (error) {
-      console.error('Logout failed:', error);
-    } finally {
-      setUser(null);
-      setIsAuthenticated(false);
-      setSwitchInfo({ is_switched: false });
-      localStorage.removeItem('switch_session_token');
-    }
-  };
-
-  const switchToUser = async (userId: string) => {
-    try {
-      // Save current application ID before switching
-      const currentAppId = localStorage.getItem('current_application_id');
-      if (currentAppId) {
-        localStorage.setItem('admin_saved_application_id', currentAppId);
-      }
-      
-      const response = await adminApi.switchToUser(userId);
-      localStorage.setItem('switch_session_token', response.switch_session_token);
-      await refreshSwitchStatus();
-      // Notify all listeners that user switched
-      switchCallbacks.forEach(callback => callback());
-    } catch (error) {
-      console.error('Switch user failed:', error);
-      throw error;
-    }
-  };
-
-  const exitSwitch = async () => {
-    try {
-      await adminApi.exitSwitch();
-      localStorage.removeItem('switch_session_token');
-      
-      // Restore admin's application ID
-      const savedAppId = localStorage.getItem('admin_saved_application_id');
-      if (savedAppId) {
-        localStorage.setItem('current_application_id', savedAppId);
-        localStorage.removeItem('admin_saved_application_id');
-      }
-      
-      await refreshSwitchStatus();
-      // Notify all listeners that user exited switch
-      switchCallbacks.forEach(callback => callback());
-    } catch (error) {
-      console.error('Exit switch failed:', error);
-      throw error;
-    }
-  };
-
-  const onUserSwitch = useCallback((callback: () => void) => {
-    setSwitchCallbacks(prev => new Set(prev).add(callback));
-    // Return function to cancel listener
-    return () => {
-      setSwitchCallbacks(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(callback);
-        return newSet;
-      });
-    };
-  }, []);
-
-  const value = {
-    user,
-    isAuthenticated,
-    isLoading,
-    switchInfo,
-    login,
-    logout,
-    switchToUser,
-    exitSwitch,
-    refreshSwitchStatus,
-    refreshUserInfo,
-    onUserSwitch,
-  };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
-
-export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    const response = await authService.login({ email, password, language })
+    authService.setToken(response.access_token)
+    const current = await authService.getCurrentUser()
+    setUser(current)
+    setAuthenticated(true)
+    await applyLanguage(current)
+    await refreshSwitchStatus()
+    return { requiresPasswordChange: response.requires_password_change, passwordMessage: response.password_message }
   }
-  return context;
-};
+  const logout = async () => {
+    await authService.logout()
+    localStorage.removeItem('switch_session_token')
+    clearIdentity()
+  }
+  const notifySwitch = () => listeners.forEach(listener => listener())
+  const switchToUser = async (userId: string) => {
+    const currentApp = localStorage.getItem('current_application_id')
+    if (currentApp) localStorage.setItem('admin_saved_application_id', currentApp)
+    const response = await adminApi.switchToUser(userId)
+    localStorage.setItem('switch_session_token', response.switch_session_token)
+    await refreshSwitchStatus()
+    notifySwitch()
+  }
+  const exitSwitch = async () => {
+    await adminApi.exitSwitch()
+    localStorage.removeItem('switch_session_token')
+    const savedApp = localStorage.getItem('admin_saved_application_id')
+    if (savedApp) {
+      localStorage.setItem('current_application_id', savedApp)
+      localStorage.removeItem('admin_saved_application_id')
+    }
+    await refreshSwitchStatus()
+    notifySwitch()
+  }
+  const onUserSwitch = useCallback((callback: () => void) => {
+    setListeners(previous => new Set(previous).add(callback))
+    return () => setListeners(previous => {
+      const next = new Set(previous)
+      next.delete(callback)
+      return next
+    })
+  }, [])
+  return <AuthContext.Provider value={{
+    user, isAuthenticated, isLoading, switchInfo, login, logout, switchToUser,
+    exitSwitch, refreshSwitchStatus, refreshUserInfo, onUserSwitch
+  }}>{children}</AuthContext.Provider>
+}
+
+export const useAuth = () => {
+  const value = useContext(AuthContext)
+  if (!value) throw new Error('useAuth must be used within an AuthProvider')
+  return value
+}

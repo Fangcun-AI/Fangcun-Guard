@@ -1,4 +1,4 @@
-# Agent Safety 概述
+# Agent Runtime Firewall 概述
 
 ## 1. 项目背景
 
@@ -10,11 +10,11 @@ AI Agent 通过 function calling 调用外部工具完成任务，但这个过�
 - 攻击者利用工具定义中的漏洞，构造跨工具攻击链
 - Agent 被操纵频繁调用工具，消耗资源或放大攻击效果
 
-Agent Safety 提供三层运行时防御，覆盖工具定义审计、工具调用监控和推理链安全审计三个阶段，形成从"工具长什么样"到"工具怎么被用"到"Agent 怎么想"的完整防护链。
+Agent Runtime Firewall 提供三层运行时防御，覆盖工具定义审计、工具调用监控和推理链安全审计三个阶段，形成从"工具长什么样"到"工具怎么被用"到"Agent 怎么想"的完整防护链。
 
 ## 2. 技术现状
 
-Agent Safety 采用三层检测架构，分别在请求的不同阶段执行。
+Agent Runtime Firewall 采用三层检测架构，分别在请求的不同阶段执行。
 
 ### 2.1 第一层：工具定义验证（on_input_check）
 

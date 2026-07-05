@@ -1,51 +1,42 @@
-/**
- * Billing and subscription related types
- */
+type SubscriptionKind = 'free' | 'subscribed'
 
 export interface UsageBreakdown {
-  guardrails_proxy: number;
-  direct_model_access: number;
+  guardrails_proxy: number
+  direct_model_access: number
 }
 
-export interface Subscription {
-  id: string;
-  tenant_id: string;
-  subscription_type: 'free' | 'subscribed';
-  subscription_tier: number;
-  monthly_quota: number;
-  current_month_usage: number;
-  usage_reset_at: string;
-  usage_percentage: number;
-  plan_name: string;
-  usage_breakdown?: UsageBreakdown;
-  billing_period_start?: string;
-  billing_period_end?: string;
-  purchased_quota: number;
-  purchased_quota_expires_at: string | null;
+interface UsageMeter {
+  monthly_quota: number
+  current_month_usage: number
+  usage_reset_at: string
+  usage_percentage: number
+  plan_name: string
 }
 
-export interface UsageInfo {
-  current_month_usage: number;
-  monthly_quota: number;
-  usage_percentage: number;
-  remaining: number;
-  usage_reset_at: string;
-  subscription_type: string;
-  plan_name: string;
+export interface Subscription extends UsageMeter {
+  id: string
+  tenant_id: string
+  subscription_type: SubscriptionKind
+  subscription_tier: number
+  usage_breakdown?: UsageBreakdown
+  billing_period_start?: string
+  billing_period_end?: string
+  purchased_quota: number
+  purchased_quota_expires_at: string | null
 }
 
-export interface SubscriptionListItem {
-  id: string;
-  tenant_id: string;
-  email: string;
-  subscription_type: 'free' | 'subscribed';
-  monthly_quota: number;
-  current_month_usage: number;
-  usage_reset_at: string;
-  usage_percentage: number;
-  plan_name: string;
+export interface UsageInfo extends UsageMeter {
+  remaining: number
+  subscription_type: string
+}
+
+export interface SubscriptionListItem extends UsageMeter {
+  id: string
+  tenant_id: string
+  email: string
+  subscription_type: SubscriptionKind
 }
 
 export interface UpdateSubscriptionRequest {
-  subscription_type: 'free' | 'subscribed';
+  subscription_type: SubscriptionKind
 }

@@ -46,4 +46,4 @@ Run through this list before every public release to prevent leaking internal de
 
 - [ ] Startup logs print: `SMTP: disabled`, `Billing: disabled` when not configured
 - [ ] SMTP, billing, and payment features are inert when credentials are empty
-- [ ] Guard Model Router is disabled by default (requires `GUARD_MODELS_CONFIG_PATH`)
+- [ ] Fangcun Guard Router is disabled by default (requires `GUARD_MODELS_CONFIG_PATH`)

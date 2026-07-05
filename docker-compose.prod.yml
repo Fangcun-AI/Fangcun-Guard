@@ -1,152 +1,152 @@
-# FangcunGuard Docker Compose - Production Configuration
-# Uses pre-built images from Docker Hub (no source code required)
-#
-# Usage:
-#   1. Create .env file with PLATFORM_IMAGE=your-registry/fangcunguard-platform:version
-#   2. Run: docker compose -f docker-compose.prod.yml up -d
+# FangcunGuard Docker Compose - Production Configuration # fcg-rewrite
+# Uses pre-built images from Docker Hub (no source code required) # fcg-rewrite
+# # fcg-rewrite
+# Usage: # fcg-rewrite
+#   1. Create .env file with PLATFORM_IMAGE=your-registry/fangcunguard-platform:version # fcg-rewrite
+#   2. Run: docker compose -f docker-compose.prod.yml up -d # fcg-rewrite
 
-services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: fangcunguard-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: fangcunguard
-      POSTGRES_USER: fangcunguard
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_password}
-      POSTGRES_HOST_AUTH_METHOD: md5
-    command: [
-      "postgres",
-      "-c", "max_connections=600",
-      "-c", "shared_buffers=256MB",
-      "-c", "effective_cache_size=1GB",
-      "-c", "maintenance_work_mem=64MB",
-      "-c", "checkpoint_completion_target=0.9",
-      "-c", "wal_buffers=16MB",
-      "-c", "default_statistics_target=100",
-      "-c", "random_page_cost=1.1",
-      "-c", "effective_io_concurrency=200",
-      "-c", "work_mem=4MB"
-    ]
-    ports:
-      - "${POSTGRES_PORT:-54321}:5432"
-    volumes:
-      - fangcunguard-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fangcunguard -d fangcunguard"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - fangcunguard-network
+services: # fcg-rewrite
+  # PostgreSQL Database # fcg-rewrite
+  postgres: # fcg-rewrite
+    image: postgres:16-alpine # fcg-rewrite
+    container_name: fangcunguard-postgres # fcg-rewrite
+    restart: unless-stopped # fcg-rewrite
+    environment: # fcg-rewrite
+      POSTGRES_DB: fangcunguard # fcg-rewrite
+      POSTGRES_USER: fangcunguard # fcg-rewrite
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_password} # fcg-rewrite
+      POSTGRES_HOST_AUTH_METHOD: md5 # fcg-rewrite
+    command: [ # fcg-rewrite
+      "postgres", # fcg-rewrite
+      "-c", "max_connections=600", # fcg-rewrite
+      "-c", "shared_buffers=256MB", # fcg-rewrite
+      "-c", "effective_cache_size=1GB", # fcg-rewrite
+      "-c", "maintenance_work_mem=64MB", # fcg-rewrite
+      "-c", "checkpoint_completion_target=0.9", # fcg-rewrite
+      "-c", "wal_buffers=16MB", # fcg-rewrite
+      "-c", "default_statistics_target=100", # fcg-rewrite
+      "-c", "random_page_cost=1.1", # fcg-rewrite
+      "-c", "effective_io_concurrency=200", # fcg-rewrite
+      "-c", "work_mem=4MB" # fcg-rewrite
+    ] # fcg-rewrite
+    ports: # fcg-rewrite
+      - "${POSTGRES_PORT:-54321}:5432" # fcg-rewrite
+    volumes: # fcg-rewrite
+      - fangcunguard-db-data:/var/lib/postgresql/data # fcg-rewrite
+    healthcheck: # fcg-rewrite
+      test: ["CMD-SHELL", "pg_isready -U fangcunguard -d fangcunguard"] # fcg-rewrite
+      interval: 5s # fcg-rewrite
+      timeout: 5s # fcg-rewrite
+      retries: 5 # fcg-rewrite
+    networks: # fcg-rewrite
+      - fangcunguard-network # fcg-rewrite
 
-  # Unified Platform Service (Frontend + Backend)
-  # Production mode: Uses pre-built image from registry
-  platform:
-    image: ${PLATFORM_IMAGE:-fangcunguard/fangcunguard-platform:latest}
-    container_name: fangcunguard-platform
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
-      - "${ADMIN_PORT:-5000}:5000"
-      - "${DETECTION_PORT:-5001}:5001"
-      - "${PROXY_PORT:-5002}:5002"
-    environment:
-      # Database configuration
-      - DATABASE_HOST=${DATABASE_HOST:-postgres}
-      - DATABASE_USER=${DATABASE_USER:-fangcunguard}
-      - DATABASE_NAME=${DATABASE_NAME:-fangcunguard}
-      - DATABASE_URL=postgresql://${DATABASE_USER:-fangcunguard}:${POSTGRES_PASSWORD:-your_password}@${DATABASE_HOST:-postgres}:5432/${DATABASE_NAME:-fangcunguard}
-      - RESET_DATABASE_ON_STARTUP=false
+  # Unified Platform Service (Frontend + Backend) # fcg-rewrite
+  # Production mode: Uses pre-built image from registry # fcg-rewrite
+  platform: # fcg-rewrite
+    image: ${PLATFORM_IMAGE:-fangcunguard/fangcunguard-platform:latest} # fcg-rewrite
+    container_name: fangcunguard-platform # fcg-rewrite
+    restart: unless-stopped # fcg-rewrite
+    ports: # fcg-rewrite
+      - "${FRONTEND_PORT:-3000}:80" # fcg-rewrite
+      - "${ADMIN_PORT:-5000}:5000" # fcg-rewrite
+      - "${DETECTION_PORT:-5001}:5001" # fcg-rewrite
+      - "${PROXY_PORT:-5002}:5002" # fcg-rewrite
+    environment: # fcg-rewrite
+      # Database configuration # fcg-rewrite
+      - DATABASE_HOST=${DATABASE_HOST:-postgres} # fcg-rewrite
+      - DATABASE_USER=${DATABASE_USER:-fangcunguard} # fcg-rewrite
+      - DATABASE_NAME=${DATABASE_NAME:-fangcunguard} # fcg-rewrite
+      - DATABASE_URL=postgresql://${DATABASE_USER:-fangcunguard}:${POSTGRES_PASSWORD:-your_password}@${DATABASE_HOST:-postgres}:5432/${DATABASE_NAME:-fangcunguard} # fcg-rewrite
+      - RESET_DATABASE_ON_STARTUP=false # fcg-rewrite
 
-      # Application configuration
-      - DEBUG=${DEBUG:-false}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production}
+      # Application configuration # fcg-rewrite
+      - DEBUG=${DEBUG:-false} # fcg-rewrite
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-in-production} # fcg-rewrite
 
-      # Deployment mode configuration
-      # 'enterprise': Private enterprise deployment (default) - no subscription, no third-party package marketplace
-      # 'saas': SaaS deployment - with subscription system and third-party package marketplace
-      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-enterprise}
+      # Deployment mode configuration # fcg-rewrite
+      # 'enterprise': Private enterprise deployment (default) - no subscription, no third-party package marketplace # fcg-rewrite
+      # 'saas': SaaS deployment - with subscription system and third-party package marketplace # fcg-rewrite
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-enterprise} # fcg-rewrite
 
-      # Data directory configuration
-      - DATA_DIR=/app/data
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Data directory configuration # fcg-rewrite
+      - DATA_DIR=/app/data # fcg-rewrite
+      - LOG_LEVEL=${LOG_LEVEL:-INFO} # fcg-rewrite
 
-      # CORS configuration
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      # CORS configuration # fcg-rewrite
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000} # fcg-rewrite
 
-      # Administrator configuration
-      - SUPER_ADMIN_USERNAME=${SUPER_ADMIN_USERNAME:-admin@yourdomain.com}
-      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:-CHANGE-THIS-PASSWORD-IN-PRODUCTION}
+      # Administrator configuration # fcg-rewrite
+      - SUPER_ADMIN_USERNAME=${SUPER_ADMIN_USERNAME:-admin@yourdomain.com} # fcg-rewrite
+      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD:-CHANGE-THIS-PASSWORD-IN-PRODUCTION} # fcg-rewrite
 
-      # Default language configuration
-      - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en}
+      # Default language configuration # fcg-rewrite
+      - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en} # fcg-rewrite
 
-      # Model API configuration (FangcunGuard Text Model)
-      - GUARDRAILS_MODEL_API_URL=${GUARDRAILS_MODEL_API_URL:-http://localhost:58002/v1}
-      - GUARDRAILS_MODEL_API_KEY=${GUARDRAILS_MODEL_API_KEY:-EMPTY}
-      - GUARDRAILS_MODEL_NAME=${GUARDRAILS_MODEL_NAME:-3Guard-Gen-8B}
+      # Model API configuration (FangcunGuard Text Model) # fcg-rewrite
+      - GUARDRAILS_MODEL_API_URL=${GUARDRAILS_MODEL_API_URL:-http://localhost:58002/v1} # fcg-rewrite
+      - GUARDRAILS_MODEL_API_KEY=${GUARDRAILS_MODEL_API_KEY:-EMPTY} # fcg-rewrite
+      - GUARDRAILS_MODEL_NAME=${GUARDRAILS_MODEL_NAME:-3Guard-Gen-8B} # fcg-rewrite
 
-      # Multimodal model API configuration (Vision-Language)
-      - GUARDRAILS_VL_MODEL_API_URL=${GUARDRAILS_VL_MODEL_API_URL:-http://localhost:58003/v1}
-      - GUARDRAILS_VL_MODEL_API_KEY=${GUARDRAILS_VL_MODEL_API_KEY:-EMPTY}
-      - GUARDRAILS_VL_MODEL_NAME=${GUARDRAILS_VL_MODEL_NAME:-Qwen3Guard-VL}
+      # Multimodal model API configuration (Vision-Language) # fcg-rewrite
+      - GUARDRAILS_VL_MODEL_API_URL=${GUARDRAILS_VL_MODEL_API_URL:-http://localhost:58003/v1} # fcg-rewrite
+      - GUARDRAILS_VL_MODEL_API_KEY=${GUARDRAILS_VL_MODEL_API_KEY:-EMPTY} # fcg-rewrite
+      - GUARDRAILS_VL_MODEL_NAME=${GUARDRAILS_VL_MODEL_NAME:-Qwen3Guard-VL} # fcg-rewrite
 
-      # Embedding model API configuration
-      - EMBEDDING_API_BASE_URL=${EMBEDDING_API_BASE_URL:-http://localhost:58004/v1}
-      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-EMPTY}
-      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-bge-m3}
-      - EMBEDDING_MODEL_DIMENSION=${EMBEDDING_MODEL_DIMENSION:-1024}
-      - EMBEDDING_SIMILARITY_THRESHOLD=${EMBEDDING_SIMILARITY_THRESHOLD:-0.7}
-      - EMBEDDING_MAX_RESULTS=${EMBEDDING_MAX_RESULTS:-5}
+      # Embedding model API configuration # fcg-rewrite
+      - EMBEDDING_API_BASE_URL=${EMBEDDING_API_BASE_URL:-http://localhost:58004/v1} # fcg-rewrite
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-EMPTY} # fcg-rewrite
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-bge-m3} # fcg-rewrite
+      - EMBEDDING_MODEL_DIMENSION=${EMBEDDING_MODEL_DIMENSION:-1024} # fcg-rewrite
+      - EMBEDDING_SIMILARITY_THRESHOLD=${EMBEDDING_SIMILARITY_THRESHOLD:-0.7} # fcg-rewrite
+      - EMBEDDING_MAX_RESULTS=${EMBEDDING_MAX_RESULTS:-5} # fcg-rewrite
 
-      # SMTP email configuration
-      - SMTP_SERVER=${SMTP_SERVER:-smtp.yourdomain.com}
-      - SMTP_PORT=${SMTP_PORT:-465}
-      - SMTP_USERNAME=${SMTP_USERNAME:-your-email@yourdomain.com}
-      - SMTP_PASSWORD=${SMTP_PASSWORD:-your-password}
-      - SMTP_USE_TLS=${SMTP_USE_TLS:-false}
-      - SMTP_USE_SSL=${SMTP_USE_SSL:-true}
+      # SMTP email configuration # fcg-rewrite
+      - SMTP_SERVER=${SMTP_SERVER:-smtp.yourdomain.com} # fcg-rewrite
+      - SMTP_PORT=${SMTP_PORT:-465} # fcg-rewrite
+      - SMTP_USERNAME=${SMTP_USERNAME:-your-email@yourdomain.com} # fcg-rewrite
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-your-password} # fcg-rewrite
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-false} # fcg-rewrite
+      - SMTP_USE_SSL=${SMTP_USE_SSL:-true} # fcg-rewrite
 
-      # Service configuration
-      - ADMIN_PORT=5000
-      - ADMIN_UVICORN_WORKERS=${ADMIN_UVICORN_WORKERS:-2}
-      - ADMIN_MAX_CONCURRENT_REQUESTS=${ADMIN_MAX_CONCURRENT_REQUESTS:-50}
+      # Service configuration # fcg-rewrite
+      - ADMIN_PORT=5000 # fcg-rewrite
+      - ADMIN_UVICORN_WORKERS=${ADMIN_UVICORN_WORKERS:-2} # fcg-rewrite
+      - ADMIN_MAX_CONCURRENT_REQUESTS=${ADMIN_MAX_CONCURRENT_REQUESTS:-50} # fcg-rewrite
 
-      - DETECTION_PORT=5001
-      - DETECTION_UVICORN_WORKERS=${DETECTION_UVICORN_WORKERS:-32}
-      - DETECTION_MAX_CONCURRENT_REQUESTS=${DETECTION_MAX_CONCURRENT_REQUESTS:-400}
-      - DETECTION_HOST=${DETECTION_HOST:-localhost}
+      - DETECTION_PORT=5001 # fcg-rewrite
+      - DETECTION_UVICORN_WORKERS=${DETECTION_UVICORN_WORKERS:-32} # fcg-rewrite
+      - DETECTION_MAX_CONCURRENT_REQUESTS=${DETECTION_MAX_CONCURRENT_REQUESTS:-400} # fcg-rewrite
+      - DETECTION_HOST=${DETECTION_HOST:-localhost} # fcg-rewrite
 
-      - PROXY_PORT=5002
-      - PROXY_UVICORN_WORKERS=${PROXY_UVICORN_WORKERS:-24}
-      - PROXY_MAX_CONCURRENT_REQUESTS=${PROXY_MAX_CONCURRENT_REQUESTS:-300}
+      - PROXY_PORT=5002 # fcg-rewrite
+      - PROXY_UVICORN_WORKERS=${PROXY_UVICORN_WORKERS:-24} # fcg-rewrite
+      - PROXY_MAX_CONCURRENT_REQUESTS=${PROXY_MAX_CONCURRENT_REQUESTS:-300} # fcg-rewrite
 
-      # Frontend configuration
-      - VITE_BASE=/platform/
+      # Frontend configuration # fcg-rewrite
+      - VITE_BASE=/platform/ # fcg-rewrite
 
-    volumes:
-      - fangcunguard-platform-data:/mnt/data/fangcunguard-data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - fangcunguard-network
-    healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:5000/health && curl -f http://localhost:5001/health && curl -f http://localhost:5002/health && curl -f http://localhost:80"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    volumes: # fcg-rewrite
+      - fangcunguard-platform-data:/mnt/data/fangcunguard-data # fcg-rewrite
+    depends_on: # fcg-rewrite
+      postgres: # fcg-rewrite
+        condition: service_healthy # fcg-rewrite
+    extra_hosts: # fcg-rewrite
+      - "host.docker.internal:host-gateway" # fcg-rewrite
+    networks: # fcg-rewrite
+      - fangcunguard-network # fcg-rewrite
+    healthcheck: # fcg-rewrite
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:5000/health && curl -f http://localhost:5001/health && curl -f http://localhost:5002/health && curl -f http://localhost:80"] # fcg-rewrite
+      interval: 30s # fcg-rewrite
+      timeout: 10s # fcg-rewrite
+      retries: 3 # fcg-rewrite
 
-networks:
-  fangcunguard-network:
-    driver: bridge
+networks: # fcg-rewrite
+  fangcunguard-network: # fcg-rewrite
+    driver: bridge # fcg-rewrite
 
-volumes:
-  fangcunguard-db-data:
-    driver: local
-  fangcunguard-platform-data:
-    driver: local
+volumes: # fcg-rewrite
+  fangcunguard-db-data: # fcg-rewrite
+    driver: local # fcg-rewrite
+  fangcunguard-platform-data: # fcg-rewrite
+    driver: local # fcg-rewrite

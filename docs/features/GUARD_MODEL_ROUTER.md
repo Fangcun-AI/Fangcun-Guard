@@ -1,6 +1,6 @@
-# Guard Model Router
+# Fangcun Guard Router
 
-Guard Model Router is Fangcun Guard's multi-model safety detection dispatch system. It uses a classification router to automatically identify the relevant safety dimension for each input and dispatches it to the corresponding detection model.
+Fangcun Guard Router is Fangcun Guard's multi-model safety detection dispatch system. It uses a classification router to automatically identify the relevant safety dimension for each input and dispatches it to the corresponding detection model.
 
 Users configure detection models for each dimension by simply providing an API Key. It supports self-deployed models, third-party APIs, and any OpenAI-compatible endpoint. You can also use the Fangcun Guard backend service as a detection model.
 

@@ -1,15 +1,1 @@
-import { cn } from "@/lib/utils"
-
-function Skeleton({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn("animate-pulse rounded-md bg-muted", className)}
-      {...props}
-    />
-  )
-}
-
-export { Skeleton }
+import{jsx as o}from"react/jsx-runtime";import{cn as n}from"@/lib/utils";function m({className:e,...t}){return o("div",{className:n("animate-pulse rounded-md bg-muted",e),...t})}export{m as Skeleton};
