@@ -13,7 +13,7 @@ Only meaningful when scanning 2+ MCP servers simultaneously.
 
 import re
 from typing import List, Dict, Any, Set
-from plugins_builtin.mcp_scanner.engines import McpScanEngine
+from plugins_builtin.mcp_scanner.engines import McpScanner
 from plugins_builtin.mcp_scanner.models import McpFinding
 
 
@@ -82,7 +82,7 @@ CROSS_SERVER_CHAINS = [
 ]
 
 
-def _detect_server_capabilities(tools: List[Dict[str, Any]]) -> Set[str]:
+def _probe_server_capabilities(tools: List[Dict[str, Any]]) -> Set[str]:
     """Detect aggregate capabilities across all tools from one server."""
     capabilities = set()
     for tool in tools:
@@ -94,7 +94,7 @@ def _detect_server_capabilities(tools: List[Dict[str, Any]]) -> Set[str]:
     return capabilities
 
 
-class BehaviorAnalysisEngine(McpScanEngine):
+class BehaviorAnalyzer(McpScanner):
     """Cross-server trust boundary and capability combination analysis.
 
     Only produces findings when 2+ servers are scanned together, since
@@ -123,7 +123,7 @@ class BehaviorAnalysisEngine(McpScanEngine):
         # Compute per-server capabilities
         server_caps: Dict[str, Set[str]] = {}
         for server_name, tools in servers.items():
-            server_caps[server_name] = _detect_server_capabilities(tools)
+            server_caps[server_name] = _probe_server_capabilities(tools)
 
         # ── Cross-server attack chain detection ──
         for chain in CROSS_SERVER_CHAINS:

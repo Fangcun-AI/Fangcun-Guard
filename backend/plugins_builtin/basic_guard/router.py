@@ -71,7 +71,7 @@ def get_tenant_id(request: Request) -> str:
     return str(tenant_id)
 
 
-def _policy_to_response(policy) -> BasicGuardPolicyResponse:
+def _to_policy_response(policy) -> BasicGuardPolicyResponse:
     """Convert DB policy to API response."""
     return BasicGuardPolicyResponse(
         id=str(policy.id),
@@ -121,7 +121,7 @@ async def get_basic_guard_policy(
         db.commit()
         db.refresh(policy)
 
-    return _policy_to_response(policy)
+    return _to_policy_response(policy)
 
 
 @router.put("/basic-guard-policy")
@@ -165,5 +165,5 @@ async def update_basic_guard_policy(
     return {
         "success": True,
         "message": "Basic guard policy updated",
-        "policy": _policy_to_response(policy),
+        "policy": _to_policy_response(policy),
     }

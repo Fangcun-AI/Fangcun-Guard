@@ -10,7 +10,7 @@ from utils.logger import setup_logger
 logger = setup_logger()
 
 
-class BasicGuardPolicyCache:
+class BasicGuardPolicyStore:
     """Cache for basic guard policies (5 min TTL)"""
 
     def __init__(self):
@@ -104,4 +104,4 @@ class _BasicGuardPolicySnapshot:
 
 
 # Global instance
-basic_guard_cache = BasicGuardPolicyCache()
+basic_guard_cache = BasicGuardPolicyStore()

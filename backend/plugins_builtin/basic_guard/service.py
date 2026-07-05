@@ -42,7 +42,7 @@ REASONING_DIVERGENCE_PATTERNS = [
 ]
 
 
-class BasicGuardService:
+class BasicGuardEngine:
     """Core basic guard detection logic (streaming safety engines)"""
 
     async def check_streaming_output(
@@ -167,4 +167,4 @@ class BasicGuardService:
 
 
 # Global singleton
-basic_guard_service = BasicGuardService()
+basic_guard_service = BasicGuardEngine()

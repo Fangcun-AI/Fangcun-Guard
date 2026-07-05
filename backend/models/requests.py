@@ -1,396 +1,323 @@
-from typing import List, Optional, Union, Any, Dict
-from pydantic import BaseModel, Field, validator, model_validator, ConfigDict
+"""Typed API request payloads and validation rules."""
+
+import re
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator, validator
+
+_ROLES = {"user", "system", "assistant", "tool", "function"}
+_SCANNER_TYPES = {"blacklist", "whitelist", "official_scanner", "marketplace_scanner", "custom_scanner"}
+_RISK_LEVELS = {"no_risk", "low_risk", "medium_risk", "high_risk"}
+_OVERRIDE_RISKS = {"low_risk", "medium_risk", "high_risk"}
+_CATEGORIES = {f"S{index}" for index in range(1, 22)}
+_EMAIL = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+
+
+def _choice(value, allowed, label):
+    if value is not None and value not in allowed:
+        raise ValueError(f"{label} must be one of: {sorted(allowed)}")
+    return value
+
+
+def _required_text(value: str, label: str) -> str:
+    if not value or not value.strip():
+        raise ValueError(f"{label} cannot be empty")
+    if len(value) > 1_000_000:
+        raise ValueError(f"{label} too long (max 1000000 characters)")
+    return value.strip()
+
 
 class ImageUrl(BaseModel):
-    """Image URL model - support file:// path, http(s):// URL or data:image base64 encoding"""
-    url: str = Field(..., description="Image URL: file://local_path, http(s)://remote_URL, 或 data:image/jpeg;base64,{base64_coding}")
+    url: str
+
 
 class ContentPart(BaseModel):
-    """Content part model - support text and image"""
-    type: str = Field(..., description="Content type: text or image_url")
-    text: Optional[str] = Field(None, description="Text content")
-    image_url: Optional[ImageUrl] = Field(None, description="Image URL")
+    type: str
+    text: Optional[str] = None
+    image_url: Optional[ImageUrl] = None
 
-    @validator('type')
-    def validate_type(cls, v):
-        if v not in ['text', 'image_url']:
-            raise ValueError('type must be one of: text, image_url')
-        return v
+    @validator("type")
+    def check_type(cls, value):
+        return _choice(value, {"text", "image_url"}, "type")
+
 
 class Message(BaseModel):
-    """Message model - support text and multi-modal content"""
-    role: str = Field(..., description="Message role: user, system, assistant, tool")
-    content: Optional[Union[str, List[ContentPart]]] = Field(None, description="Message content, can be string, content part list, or null")
+    role: str
+    content: Optional[Union[str, List[ContentPart]]] = None
 
-    @validator('role')
-    def validate_role(cls, v):
-        if v not in ['user', 'system', 'assistant', 'tool', 'function']:
-            raise ValueError('role must be one of: user, system, assistant, tool, function')
-        return v
+    @validator("role")
+    def check_role(cls, value):
+        return _choice(value, _ROLES, "role")
 
-    @validator('content', pre=True)
-    def validate_content(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, str):
-            if not v or not v.strip():
-                return v  # Allow empty strings, don't raise
-            if len(v) > 1000000:
-                raise ValueError('content too long (max 1000000 characters)')
-            return v.strip()
-        elif isinstance(v, list):
-            if not v:
-                return v  # Allow empty lists
-            return v
-        else:
-            raise ValueError('content must be string, list of content parts, or null')
-        return v
+    @validator("content", pre=True)
+    def check_content(cls, value):
+        if value is None or isinstance(value, list):
+            return value
+        if not isinstance(value, str):
+            raise ValueError("content must be string, list of content parts, or null")
+        if len(value) > 1_000_000:
+            raise ValueError("content too long (max 1000000 characters)")
+        if not value.strip():
+            return value
+        return value.strip()
+
 
 class SkillOperation(BaseModel):
-    """Single skill operation record"""
-    index: int = Field(..., description="Operation index")
-    action: str = Field(..., description="Operation type: read, exec, edit")
-    target: str = Field(..., description="Operation target: file path or command")
-    details: Optional[str] = Field(None, description="Additional details (e.g., char count for edit)")
+    index: int
+    action: str
+    target: str
+    details: Optional[str] = None
+
 
 class SkillAuditRequest(BaseModel):
-    """Skill audit request model"""
-    skill_name: str = Field(..., description="Skill name from SKILL.md")
-    skill_description: str = Field(..., description="Skill description from SKILL.md")
-    operations: List[SkillOperation] = Field(..., description="Agent executed operations history")
-    current_operation: str = Field(..., description="The current operation to judge")
-    skill_metadata: Optional[Dict[str, Any]] = Field(None, description="Additional skill metadata (author, version, etc.)")
+    skill_name: str
+    skill_description: str
+    operations: List[SkillOperation]
+    current_operation: str
+    skill_metadata: Optional[Dict[str, Any]] = None
 
-    @validator('operations')
-    def validate_operations(cls, v):
-        if not v:
-            raise ValueError('operations cannot be empty')
-        return v
+    @validator("operations")
+    def require_operations(cls, value):
+        if not value:
+            raise ValueError("operations cannot be empty")
+        return value
 
 
 class GuardrailRequest(BaseModel):
-    """Guardrail detection request model"""
-    model: str = Field(..., description="模型名称")
-    messages: List[Message] = Field(..., description="Message list")
-    max_tokens: Optional[int] = Field(None, description="Maximum tokens")
-    extra_body: Optional[Dict[str, Any]] = Field(None, description="Extra parameters, can contain xxai_app_user_id etc.")
+    model: str
+    messages: List[Message]
+    max_tokens: Optional[int] = None
+    extra_body: Optional[Dict[str, Any]] = None
 
-    @validator('messages')
-    def validate_messages(cls, v):
-        if not v:
-            raise ValueError('messages cannot be empty')
-        return v
+    @validator("messages")
+    def require_messages(cls, value):
+        if not value:
+            raise ValueError("messages cannot be empty")
+        return value
 
-class BlacklistRequest(BaseModel):
-    """Blacklist request model"""
-    name: str = Field(..., description="Blacklist library name")
-    keywords: List[str] = Field(..., description="Keyword list")
-    description: Optional[str] = Field(None, description="Description")
-    is_active: bool = Field(True, description="Whether enabled")
-    
-    @validator('keywords')
-    def validate_keywords(cls, v):
-        if not v:
-            raise ValueError('keywords cannot be empty')
-        return [kw.strip() for kw in v if kw.strip()]
 
-class WhitelistRequest(BaseModel):
-    """Whitelist request model"""
-    name: str = Field(..., description="Whitelist library name")
-    keywords: List[str] = Field(..., description="Keyword list")
-    description: Optional[str] = Field(None, description="Description")
-    is_active: bool = Field(True, description="Whether enabled")
-    
-    @validator('keywords')
-    def validate_keywords(cls, v):
-        if not v:
-            raise ValueError('keywords cannot be empty')
-        return [kw.strip() for kw in v if kw.strip()]
+class KeywordListRequest(BaseModel):
+    name: str
+    keywords: List[str]
+    description: Optional[str] = None
+    is_active: bool = True
 
-class ResponseTemplateRequest(BaseModel):
-    """Response template request model - supports all scanner types"""
-    # Legacy field (optional for backward compatibility)
-    category: Optional[str] = Field(None, description="Risk category (legacy: S1-S21, default)")
+    @validator("keywords")
+    def clean_keywords(cls, value):
+        if not value:
+            raise ValueError("keywords cannot be empty")
+        return [keyword.strip() for keyword in value if keyword.strip()]
 
-    # New fields for unified scanner support
-    scanner_type: Optional[str] = Field(None, description="Scanner type: blacklist, whitelist, official_scanner, marketplace_scanner, custom_scanner")
-    scanner_identifier: Optional[str] = Field(None, description="Scanner identifier: blacklist name, whitelist name, scanner tag (S1, S100, etc.)")
 
-    risk_level: str = Field(..., description="Risk level")
-    template_content: Dict[str, str] = Field(..., description="Multilingual response template content: {'en': '...', 'zh': '...', ...}")
-    is_default: bool = Field(False, description="Whether it is a default template")
-    is_active: bool = Field(True, description="Whether enabled")
+class BlacklistRequest(KeywordListRequest):
+    pass
 
-    @validator('category')
-    def validate_category(cls, v):
-        if v is not None:
-            valid_categories = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'default']
-            if v not in valid_categories:
-                raise ValueError(f'category must be one of: {valid_categories}')
-        return v
 
-    @validator('scanner_type')
-    def validate_scanner_type(cls, v):
-        if v is not None:
-            valid_types = ['blacklist', 'whitelist', 'official_scanner', 'marketplace_scanner', 'custom_scanner']
-            if v not in valid_types:
-                raise ValueError(f'scanner_type must be one of: {valid_types}')
-        return v
+class WhitelistRequest(KeywordListRequest):
+    pass
 
-    @validator('risk_level')
-    def validate_risk_level(cls, v):
-        # Accept both underscore format (from database/frontend) and space format (legacy)
-        valid_values = ['no_risk', 'low_risk', 'medium_risk', 'high_risk', 'no risk', 'low risk', 'medium risk', 'high risk']
-        if v not in valid_values:
-            raise ValueError('risk_level must be one of: no_risk, low_risk, medium_risk, high_risk (or legacy: no risk, low risk, medium risk, high risk)')
-        # Normalize to underscore format for consistency
-        return v.replace(' ', '_')
 
-    @validator('template_content')
-    def validate_template_content(cls, v):
-        # Must contain at least 'en' or 'zh'
-        if not v or (not v.get('en') and not v.get('zh')):
-            raise ValueError("template_content must contain at least 'en' or 'zh'")
-        return v
+class ScannerTarget(BaseModel):
+    category: Optional[str] = None
+    scanner_type: Optional[str] = None
+    scanner_identifier: Optional[str] = None
 
-    @model_validator(mode='after')
-    def validate_scanner_info(self):
-        # Must have either category or (scanner_type + scanner_identifier)
+    @validator("scanner_type")
+    def check_scanner_type(cls, value):
+        return _choice(value, _SCANNER_TYPES, "scanner_type")
+
+    @model_validator(mode="after")
+    def require_target(self):
         if not self.category and not (self.scanner_type and self.scanner_identifier):
             raise ValueError("Must provide either 'category' or both 'scanner_type' and 'scanner_identifier'")
         return self
+
+
+class ResponseTemplateRequest(ScannerTarget):
+    risk_level: str
+    template_content: Dict[str, str]
+    is_default: bool = False
+    is_active: bool = True
+
+    @validator("category")
+    def check_category(cls, value):
+        return _choice(value, _CATEGORIES | {"default"}, "category")
+
+    @validator("risk_level")
+    def normalize_risk(cls, value):
+        normalized = value.replace(" ", "_")
+        return _choice(normalized, _RISK_LEVELS, "risk_level")
+
+    @validator("template_content")
+    def require_translation(cls, value):
+        if not value or not (value.get("en") or value.get("zh")):
+            raise ValueError("template_content must contain at least 'en' or 'zh'")
+        return value
+
 
 class ProxyCompletionRequest(BaseModel):
-    """Proxy completion request model"""
-    model: str = Field(..., description="Model name")
-    messages: List[Message] = Field(..., description="Message list")
-    temperature: Optional[float] = Field(None, description="Temperature parameter")
-    top_p: Optional[float] = Field(None, description="Top-p parameter")
-    n: Optional[int] = Field(1, description="Generation quantity")
-    stream: Optional[bool] = Field(False, description="Whether to stream output")
-    stop: Optional[Union[str, List[str]]] = Field(None, description="Stop word")
-    max_tokens: Optional[int] = Field(None, description="Maximum token number")
-    presence_penalty: Optional[float] = Field(None, description="Presence penalty")
-    frequency_penalty: Optional[float] = Field(None, description="Frequency penalty")
-    user: Optional[str] = Field(None, description="User identifier")
+    model: str
+    messages: List[Message]
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    n: Optional[int] = 1
+    stream: Optional[bool] = False
+    stop: Optional[Union[str, List[str]]] = None
+    max_tokens: Optional[int] = None
+    presence_penalty: Optional[float] = None
+    frequency_penalty: Optional[float] = None
+    user: Optional[str] = None
+
 
 class ProxyModelConfig(BaseModel):
-    """Proxy model config model"""
-    config_name: str = Field(..., description="Config name")
-    api_base_url: str = Field(..., description="API base URL")
-    api_key: str = Field(..., description="API key")
-    model_name: str = Field(..., description="Model name")
-    enabled: Optional[bool] = Field(True, description="Whether enabled")
-
-    # Allow fields starting with model_
     model_config = ConfigDict(protected_namespaces=())
+    config_name: str
+    api_base_url: str
+    api_key: str
+    model_name: str
+    enabled: Optional[bool] = True
+    block_on_input_risk: Optional[bool] = False
+    block_on_output_risk: Optional[bool] = False
+    enable_reasoning_detection: Optional[bool] = True
+    stream_chunk_size: Optional[int] = Field(50, ge=1, le=500)
 
-    # 安全配置（极简设计）
-    block_on_input_risk: Optional[bool] = Field(False, description="Whether to block on input risk, default not block")
-    block_on_output_risk: Optional[bool] = Field(False, description="Whether to block on output risk, default not block")
-    enable_reasoning_detection: Optional[bool] = Field(True, description="Whether to detect reasoning content, default enabled")
-    stream_chunk_size: Optional[int] = Field(50, description="Stream detection interval, detect every N chunks, default 50", ge=1, le=500)
 
 class InputGuardrailRequest(BaseModel):
-    """Input detection request model - For dify/coze etc. agent platform plugins"""
-    input: str = Field(..., description="User input text")
-    model: Optional[str] = Field("Qwen3Guard-Gen-8B", description="Model name")
-    xxai_app_user_id: Optional[str] = Field(None, description="Tenant AI application user ID")
+    input: str
+    model: Optional[str] = "Qwen3Guard-Gen-8B"
+    xxai_app_user_id: Optional[str] = None
 
-    @validator('input')
-    def validate_input(cls, v):
-        if not v or not v.strip():
-            raise ValueError('input cannot be empty')
-        if len(v) > 1000000:
-            raise ValueError('input too long (max 1000000 characters)')
-        return v.strip()
+    @validator("input")
+    def check_input(cls, value):
+        return _required_text(value, "input")
+
 
 class OutputGuardrailRequest(BaseModel):
-    """Output detection request model - For dify/coze etc. agent platform plugins"""
-    input: str = Field(..., description="User input text")
-    output: str = Field(..., description="Model output text")
-    xxai_app_user_id: Optional[str] = Field(None, description="Tenant AI application user ID")
+    input: str
+    output: str
+    xxai_app_user_id: Optional[str] = None
 
-    @validator('input')
-    def validate_input(cls, v):
-        if not v or not v.strip():
-            raise ValueError('input cannot be empty')
-        if len(v) > 1000000:
-            raise ValueError('input too long (max 1000000 characters)')
-        return v.strip()
+    @validator("input")
+    def check_input(cls, value):
+        return _required_text(value, "input")
 
-    @validator('output')
-    def validate_output(cls, v):
-        if not v or not v.strip():
-            raise ValueError('output cannot be empty')
-        if len(v) > 1000000:
-            raise ValueError('output too long (max 1000000 characters)')
-        return v.strip()
+    @validator("output")
+    def check_output(cls, value):
+        return _required_text(value, "output")
+
 
 class ConfidenceThresholdRequest(BaseModel):
-    """Confidence threshold configuration request model"""
-    high_confidence_threshold: float = Field(..., description="High confidence threshold", ge=0.0, le=1.0)
-    medium_confidence_threshold: float = Field(..., description="Medium confidence threshold", ge=0.0, le=1.0)
-    low_confidence_threshold: float = Field(..., description="Low confidence threshold", ge=0.0, le=1.0)
-    confidence_trigger_level: str = Field(..., description="Lowest confidence level to trigger detection", pattern="^(low|medium|high)$")
+    high_confidence_threshold: float = Field(..., ge=0.0, le=1.0)
+    medium_confidence_threshold: float = Field(..., ge=0.0, le=1.0)
+    low_confidence_threshold: float = Field(..., ge=0.0, le=1.0)
+    confidence_trigger_level: str = Field(..., pattern="^(low|medium|high)$")
 
-class KnowledgeBaseRequest(BaseModel):
-    """Knowledge base request model - supports all scanner types"""
-    # Legacy field (optional for backward compatibility)
-    category: Optional[str] = Field(None, description="Risk category (legacy: S1-S21)")
 
-    # New fields for unified scanner support
-    scanner_type: Optional[str] = Field(None, description="Scanner type: blacklist, whitelist, official_scanner, marketplace_scanner, custom_scanner")
-    scanner_identifier: Optional[str] = Field(None, description="Scanner identifier: blacklist name, whitelist name, scanner tag (S1, S100, etc.)")
+class KnowledgeBaseRequest(ScannerTarget):
+    name: str
+    description: Optional[str] = None
+    similarity_threshold: float = Field(0.7, ge=0, le=1)
+    is_active: bool = True
+    is_global: Optional[bool] = False
 
-    name: str = Field(..., description="Knowledge base name")
-    description: Optional[str] = Field(None, description="Description")
-    similarity_threshold: float = Field(0.7, description="Similarity threshold for this knowledge base (0-1)", ge=0, le=1)
-    is_active: bool = Field(True, description="Whether enabled")
-    is_global: Optional[bool] = Field(False, description="Whether it is a global knowledge base (only admin can set)")
+    @validator("category")
+    def check_category(cls, value):
+        return _choice(value, _CATEGORIES, "category")
 
-    @validator('category')
-    def validate_category(cls, v):
-        if v is not None:
-            valid_categories = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18', 'S19', 'S20', 'S21']
-            if v not in valid_categories:
-                raise ValueError(f'category must be one of: {valid_categories}')
-        return v
+    @validator("name")
+    def check_name(cls, value):
+        value = _required_text(value, "name")
+        if len(value) > 255:
+            raise ValueError("name too long (max 255 characters)")
+        return value
 
-    @validator('scanner_type')
-    def validate_scanner_type(cls, v):
-        if v is not None:
-            valid_types = ['blacklist', 'whitelist', 'official_scanner', 'marketplace_scanner', 'custom_scanner']
-            if v not in valid_types:
-                raise ValueError(f'scanner_type must be one of: {valid_types}')
-        return v
-
-    @validator('name')
-    def validate_name(cls, v):
-        if not v or not v.strip():
-            raise ValueError('name cannot be empty')
-        if len(v.strip()) > 255:
-            raise ValueError('name too long (max 255 characters)')
-        return v.strip()
-
-    @model_validator(mode='after')
-    def validate_kb_scanner_info(self):
-        # Must have either category or (scanner_type + scanner_identifier)
-        if not self.category and not (self.scanner_type and self.scanner_identifier):
-            raise ValueError("Must provide either 'category' or both 'scanner_type' and 'scanner_identifier'")
-        return self
 
 class DifyModerationParams(BaseModel):
-    """Dify moderation request params model"""
-    app_id: Optional[str] = Field(None, description="Application ID")
-    inputs: Optional[Dict[str, Any]] = Field(None, description="Input variables for app.moderation.input")
-    query: Optional[str] = Field(None, description="User query for app.moderation.input")
-    text: Optional[str] = Field(None, description="LLM output text for app.moderation.output")
+    app_id: Optional[str] = None
+    inputs: Optional[Dict[str, Any]] = None
+    query: Optional[str] = None
+    text: Optional[str] = None
+
 
 class DifyModerationRequest(BaseModel):
-    """Dify API-based extension moderation request model"""
-    point: str = Field(..., description="Extension point: ping, app.moderation.input, or app.moderation.output")
-    params: Optional[DifyModerationParams] = Field(None, description="Request parameters")
+    point: str
+    params: Optional[DifyModerationParams] = None
 
-    @validator('point')
-    def validate_point(cls, v):
-        valid_points = ['ping', 'app.moderation.input', 'app.moderation.output']
-        if v not in valid_points:
-            raise ValueError(f'point must be one of: {valid_points}')
-        return v
+    @validator("point")
+    def check_point(cls, value):
+        return _choice(value, {"ping", "app.moderation.input", "app.moderation.output"}, "point")
 
-
-# =====================================================
-# Scanner Package System Request Models
-# =====================================================
 
 class PackageUploadRequest(BaseModel):
-    """Package upload request with JSON data and price"""
-    package_data: dict = Field(..., description="Package JSON data")
-    price: Optional[float] = Field(None, description="Package price as number", ge=0)
-    bundle: Optional[str] = Field(None, description="Bundle name for grouping (e.g., Enterprise, Security)")
-    language: Optional[str] = Field("en", description="User language for price formatting")
+    package_data: dict
+    price: Optional[float] = Field(None, ge=0)
+    bundle: Optional[str] = None
+    language: Optional[str] = "en"
 
 
 class PackageUpdateRequest(BaseModel):
-    """Package metadata update request"""
-    package_name: Optional[str] = Field(None, description="Package name")
-    description: Optional[str] = Field(None, description="Package description")
-    version: Optional[str] = Field(None, description="Package version")
-    price: Optional[float] = Field(None, description="Package price (numeric value)")
-    price_display: Optional[str] = Field(None, description="Price display string")
-    bundle: Optional[str] = Field(None, description="Bundle name for grouping (e.g., Enterprise, Security)")
-    is_active: Optional[bool] = Field(None, description="Whether package is active")
-    display_order: Optional[int] = Field(None, description="Display order")
+    package_name: Optional[str] = None
+    description: Optional[str] = None
+    version: Optional[str] = None
+    price: Optional[float] = None
+    price_display: Optional[str] = None
+    bundle: Optional[str] = None
+    is_active: Optional[bool] = None
+    display_order: Optional[int] = None
 
 
 class ScannerConfigUpdateRequest(BaseModel):
-    """Scanner configuration update request"""
-    is_enabled: Optional[bool] = Field(None, description="Whether scanner is enabled")
-    risk_level: Optional[str] = Field(None, description="Risk level override: high_risk, medium_risk, low_risk")
-    scan_prompt: Optional[bool] = Field(None, description="Whether to scan prompts")
-    scan_response: Optional[bool] = Field(None, description="Whether to scan responses")
+    is_enabled: Optional[bool] = None
+    risk_level: Optional[str] = None
+    scan_prompt: Optional[bool] = None
+    scan_response: Optional[bool] = None
 
-    @validator('risk_level')
-    def validate_risk_level(cls, v):
-        if v is not None and v not in ['high_risk', 'medium_risk', 'low_risk']:
-            raise ValueError('risk_level must be one of: high_risk, medium_risk, low_risk')
-        return v
+    @validator("risk_level")
+    def check_risk(cls, value):
+        return _choice(value, _OVERRIDE_RISKS, "risk_level")
 
 
-class ScannerConfigBulkUpdateItem(BaseModel):
-    """Single scanner config update in bulk update"""
-    scanner_id: str = Field(..., description="Scanner UUID")
-    is_enabled: Optional[bool] = Field(None, description="Whether scanner is enabled")
-    risk_level: Optional[str] = Field(None, description="Risk level override")
-    scan_prompt: Optional[bool] = Field(None, description="Whether to scan prompts")
-    scan_response: Optional[bool] = Field(None, description="Whether to scan responses")
+class ScannerConfigBulkUpdateItem(ScannerConfigUpdateRequest):
+    scanner_id: str
 
 
 class ScannerConfigBulkUpdateRequest(BaseModel):
-    """Bulk scanner configuration update request"""
-    updates: List[ScannerConfigBulkUpdateItem] = Field(..., description="List of scanner config updates")
+    updates: List[ScannerConfigBulkUpdateItem]
 
 
 class CustomScannerCreateRequest(BaseModel):
-    """Custom scanner creation request"""
-    scanner_type: str = Field(..., description="Scanner type: genai, regex, keyword", pattern="^(genai|regex|keyword)$")
-    name: str = Field(..., description="Scanner name", min_length=1, max_length=200)
-    definition: str = Field(..., description="Scanner definition", min_length=1, max_length=2000)
-    description: Optional[str] = Field(None, description="Scanner description", max_length=500)
-    risk_level: str = Field(..., description="Default risk level: high_risk, medium_risk, low_risk", pattern="^(high_risk|medium_risk|low_risk)$")
-    scan_prompt: bool = Field(True, description="Whether to scan prompts by default")
-    scan_response: bool = Field(True, description="Whether to scan responses by default")
-    notes: Optional[str] = Field(None, description="User notes about this scanner", max_length=1000)
+    scanner_type: str = Field(..., pattern="^(genai|regex|keyword)$")
+    name: str = Field(..., min_length=1, max_length=200)
+    definition: str = Field(..., min_length=1, max_length=2000)
+    description: Optional[str] = Field(None, max_length=500)
+    risk_level: str = Field(..., pattern="^(high_risk|medium_risk|low_risk)$")
+    scan_prompt: bool = True
+    scan_response: bool = True
+    notes: Optional[str] = Field(None, max_length=1000)
 
 
 class CustomScannerUpdateRequest(BaseModel):
-    """Custom scanner update request"""
-    name: Optional[str] = Field(None, description="Scanner name", min_length=1, max_length=200)
-    definition: Optional[str] = Field(None, description="Scanner definition", min_length=1, max_length=2000)
-    description: Optional[str] = Field(None, description="Scanner description", max_length=500)
-    risk_level: Optional[str] = Field(None, description="Default risk level", pattern="^(high_risk|medium_risk|low_risk)$")
-    scan_prompt: Optional[bool] = Field(None, description="Whether to scan prompts by default")
-    scan_response: Optional[bool] = Field(None, description="Whether to scan responses by default")
-    notes: Optional[str] = Field(None, description="User notes", max_length=1000)
-    is_enabled: Optional[bool] = Field(None, description="Whether this scanner is enabled")
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    definition: Optional[str] = Field(None, min_length=1, max_length=2000)
+    description: Optional[str] = Field(None, max_length=500)
+    risk_level: Optional[str] = Field(None, pattern="^(high_risk|medium_risk|low_risk)$")
+    scan_prompt: Optional[bool] = None
+    scan_response: Optional[bool] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+    is_enabled: Optional[bool] = None
 
 
 class PurchaseRequestCreate(BaseModel):
-    """Package purchase request"""
-    package_id: str = Field(..., description="Package UUID to purchase")
-    email: str = Field(..., description="Contact email for purchase")
-    message: Optional[str] = Field(None, description="Optional message to admin", max_length=1000)
+    package_id: str
+    email: str
+    message: Optional[str] = Field(None, max_length=1000)
 
-    @validator('email')
-    def validate_email(cls, v):
-        import re
-        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_regex, v):
-            raise ValueError('Invalid email format')
-        return v
+    @validator("email")
+    def check_email(cls, value):
+        if not _EMAIL.match(value):
+            raise ValueError("Invalid email format")
+        return value
 
 
 class PurchaseApprovalRequest(BaseModel):
-    """Purchase approval/rejection request"""
-    rejection_reason: Optional[str] = Field(None, description="Reason for rejection (required if rejecting)", max_length=500)
+    rejection_reason: Optional[str] = Field(None, max_length=500)

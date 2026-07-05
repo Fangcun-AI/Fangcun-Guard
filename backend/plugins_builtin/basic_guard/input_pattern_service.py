@@ -315,7 +315,7 @@ _DATA_EXFILTRATION = [
 # Compile all patterns
 # ============================================================
 
-def _compile_patterns(
+def _prebuild_patterns(
     raw_patterns: List[Tuple[str, str, str]],
 ) -> List[Tuple[re.Pattern, str, str]]:
     compiled = []
@@ -335,7 +335,7 @@ def _compile_patterns(
     return compiled
 
 
-INPUT_INJECTION_PATTERNS: List[Tuple[re.Pattern, str, str]] = _compile_patterns(
+INPUT_INJECTION_PATTERNS: List[Tuple[re.Pattern, str, str]] = _prebuild_patterns(
     _INSTRUCTION_OVERRIDE
     + _ROLE_INJECTION
     + _SYSTEM_MANIPULATION
@@ -352,7 +352,7 @@ INPUT_INJECTION_PATTERNS: List[Tuple[re.Pattern, str, str]] = _compile_patterns(
 # Service
 # ============================================================
 
-class InputPatternService:
+class InputPatternMatcher:
     """Static regex-based prompt injection detection for user input."""
 
     def check_input(self, text: str) -> List[Dict[str, Any]]:
@@ -423,4 +423,4 @@ class InputPatternService:
 
 
 # Global singleton
-input_pattern_service = InputPatternService()
+input_pattern_service = InputPatternMatcher()

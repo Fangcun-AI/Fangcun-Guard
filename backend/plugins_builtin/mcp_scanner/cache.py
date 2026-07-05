@@ -10,7 +10,7 @@ from utils.logger import setup_logger
 logger = setup_logger()
 
 
-class McpScannerPolicyCache:
+class McpScannerPolicyStore:
     """Cache for MCP scanner policies (5 min TTL)"""
 
     def __init__(self):
@@ -110,4 +110,4 @@ class _PolicySnapshot:
 
 
 # Global instance
-mcp_scanner_cache = McpScannerPolicyCache()
+mcp_scanner_cache = McpScannerPolicyStore()

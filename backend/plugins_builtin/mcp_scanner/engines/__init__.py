@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
 
-class McpScanEngine(ABC):
+class McpScanner(ABC):
     """Base class for all MCP scanner engines"""
 
     @property

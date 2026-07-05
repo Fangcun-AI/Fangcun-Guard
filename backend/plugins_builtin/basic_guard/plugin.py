@@ -25,7 +25,7 @@ logger = setup_logger()
 
 
 class PluginClass(DetectionPlugin):
-    """Basic Guard — core safety protection plugin"""
+    """Fangcun Core Shield — core safety protection plugin"""
 
     def get_metadata(self) -> PluginMetadata:
         return PluginMetadata(
@@ -36,8 +36,8 @@ class PluginClass(DetectionPlugin):
             plugin_type=PluginType.DETECTION,
             deployment_mode=DeploymentMode.BOTH,
             priority=50,
-            display_name="基础安全防护",
-            display_name_en="Basic Guard",
+            display_name="方寸安全基座",
+            display_name_en="Fangcun Core Shield",
             icon="shield",
             category="security",
             tags=["core", "content-safety", "prompt-injection", "dlp", "blacklist", "streaming", "output-safety"],

@@ -16,11 +16,11 @@ NOT duplicated here.
 
 import re
 from typing import List, Dict, Any, Tuple
-from plugins_builtin.mcp_scanner.engines import McpScanEngine
+from plugins_builtin.mcp_scanner.engines import McpScanner
 from plugins_builtin.mcp_scanner.models import McpFinding
 
 
-def _compile_patterns(raw_patterns: List[Tuple[str, str, str, str, str]]):
+def _prebuild_patterns(raw_patterns: List[Tuple[str, str, str, str, str]]):
     compiled = []
     for pattern_str, category, title, severity, remediation in raw_patterns:
         try:
@@ -286,12 +286,12 @@ _OBFUSCATION_RAW = [
 
 # ── Compile ──────────────────────────────────────────────────────────────────
 
-MCP_TOOL_POISONING = _compile_patterns(_MCP_TOOL_POISONING_RAW)
-PROMPT_TEMPLATE = _compile_patterns(_PROMPT_TEMPLATE_RAW)
-RESOURCE_URI = _compile_patterns(_RESOURCE_URI_RAW)
-RESOURCE_CONTENT = _compile_patterns(_RESOURCE_CONTENT_RAW)
-SERVER_INSTRUCTION = _compile_patterns(_SERVER_INSTRUCTION_RAW)
-OBFUSCATION = _compile_patterns(_OBFUSCATION_RAW)
+MCP_TOOL_POISONING = _prebuild_patterns(_MCP_TOOL_POISONING_RAW)
+PROMPT_TEMPLATE = _prebuild_patterns(_PROMPT_TEMPLATE_RAW)
+RESOURCE_URI = _prebuild_patterns(_RESOURCE_URI_RAW)
+RESOURCE_CONTENT = _prebuild_patterns(_RESOURCE_CONTENT_RAW)
+SERVER_INSTRUCTION = _prebuild_patterns(_SERVER_INSTRUCTION_RAW)
+OBFUSCATION = _prebuild_patterns(_OBFUSCATION_RAW)
 
 # Per item-type pattern sets
 PATTERNS_BY_TYPE = {
@@ -304,7 +304,7 @@ PATTERNS_BY_TYPE = {
 
 # ── Text extraction helpers ──────────────────────────────────────────────────
 
-def _extract_tool_text(tool: Dict[str, Any]) -> Dict[str, str]:
+def _pull_tool_text(tool: Dict[str, Any]) -> Dict[str, str]:
     func = tool.get('function', tool)
     fields = {
         'name': func.get('name', ''),
@@ -318,7 +318,7 @@ def _extract_tool_text(tool: Dict[str, Any]) -> Dict[str, str]:
     return fields
 
 
-def _extract_prompt_text(prompt: Dict[str, Any]) -> Dict[str, str]:
+def _pull_prompt_text(prompt: Dict[str, Any]) -> Dict[str, str]:
     fields = {
         'name': prompt.get('name', ''),
         'description': prompt.get('description', ''),
@@ -329,7 +329,7 @@ def _extract_prompt_text(prompt: Dict[str, Any]) -> Dict[str, str]:
     return fields
 
 
-def _extract_resource_text(resource: Dict[str, Any]) -> Dict[str, str]:
+def _pull_resource_text(resource: Dict[str, Any]) -> Dict[str, str]:
     return {
         'uri': resource.get('uri', ''),
         'name': resource.get('name', ''),
@@ -339,19 +339,19 @@ def _extract_resource_text(resource: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def _extract_instruction_text(item: Dict[str, Any]) -> Dict[str, str]:
+def _pull_instruction_text(item: Dict[str, Any]) -> Dict[str, str]:
     return {'instruction': item.get('instruction', '')}
 
 
 _EXTRACTOR = {
-    'tool': _extract_tool_text,
-    'prompt': _extract_prompt_text,
-    'resource': _extract_resource_text,
-    'instruction': _extract_instruction_text,
+    'tool': _pull_tool_text,
+    'prompt': _pull_prompt_text,
+    'resource': _pull_resource_text,
+    'instruction': _pull_instruction_text,
 }
 
 
-class YaraRulesEngine(McpScanEngine):
+class YaraRulesEngine(McpScanner):
     """YARA-style pattern matching for MCP-specific threats only."""
 
     @property
@@ -378,7 +378,7 @@ class YaraRulesEngine(McpScanEngine):
             item_type = item.get('_item_type', 'tool')
 
             patterns = list(PATTERNS_BY_TYPE.get(item_type, [])) + custom_compiled
-            extractor = _EXTRACTOR.get(item_type, _extract_tool_text)
+            extractor = _EXTRACTOR.get(item_type, _pull_tool_text)
             text_fields = extractor(item)
             item_name = text_fields.get('name', item.get('name', 'unknown'))
 

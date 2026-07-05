@@ -17,7 +17,7 @@ logger = setup_logger()
 
 
 class PluginClass(DetectionPlugin):
-    """Hallucination Detection plugin"""
+    """Grounding Audit plugin"""
 
     def get_metadata(self) -> PluginMetadata:
         return PluginMetadata(
@@ -28,8 +28,8 @@ class PluginClass(DetectionPlugin):
             plugin_type=PluginType.DETECTION,
             deployment_mode=DeploymentMode.BOTH,
             priority=200,
-            display_name="幻觉检测",
-            display_name_en="Hallucination Detection",
+            display_name="事实依据审计",
+            display_name_en="Grounding Audit",
             icon="search-check",
             category="analysis",
             tags=["hallucination", "groundedness", "consistency", "fact-check"],

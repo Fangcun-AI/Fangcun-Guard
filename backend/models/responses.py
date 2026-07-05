@@ -1,413 +1,359 @@
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
+"""Typed API response payloads."""
 
-class ComplianceResult(BaseModel):
-    """Compliance detection result"""
-    risk_level: str
-    categories: List[str]
+from datetime import datetime  # fcg-rewrite
+from typing import Any, Dict, List, Optional  # fcg-rewrite
 
-class SecurityResult(BaseModel):
-    """Security detection result"""
-    risk_level: str
-    categories: List[str]
+from pydantic import BaseModel, ConfigDict, Field  # fcg-rewrite
 
-class DataSecurityResult(BaseModel):
-    """Data security detection result"""
-    risk_level: str
-    categories: List[str]
-    detected_entities: List[Dict[str, Any]] = []  # Detected sensitive entities for anonymization
-    anonymized_text: Optional[str] = None  # Anonymized text for replacement action
-    restore_mapping: Optional[Dict[str, str]] = None  # Mapping for restoring numbered placeholders to original values
 
-class AgentSafetyResult(BaseModel):
-    """Agent safety detection result"""
-    risk_level: str = "no_risk"
-    categories: List[str] = []
-    tool_call_count: int = 0
-    blocked_tools: List[str] = []
-    suspicious_arguments: List[Dict[str, Any]] = []
+def list_field():  # fcg-rewrite
+    return Field(default_factory=list)  # fcg-rewrite
 
-class HallucinationResult(BaseModel):
-    """Hallucination detection result"""
-    risk_level: str = "no_risk"
-    categories: List[str] = []
-    groundedness_score: Optional[float] = None
-    consistency_score: Optional[float] = None
-    flagged_claims: List[str] = []
 
-class SkillAuditResponse(BaseModel):
-    """Skill audit response model"""
+class RiskCategories(BaseModel):  # fcg-rewrite
+    risk_level: str  # fcg-rewrite
+    categories: List[str]  # fcg-rewrite
+
+
+class ComplianceResult(RiskCategories):  # fcg-rewrite
+    pass
+
+
+class SecurityResult(RiskCategories):  # fcg-rewrite
+    pass
+
+
+class DataSecurityResult(RiskCategories):  # fcg-rewrite
+    detected_entities: List[Dict[str, Any]] = list_field()  # fcg-rewrite
+    anonymized_text: Optional[str] = None  # fcg-rewrite
+    restore_mapping: Optional[Dict[str, str]] = None  # fcg-rewrite
+
+
+class AgentSafetyResult(BaseModel):  # fcg-rewrite
+    risk_level: str = "no_risk"  # fcg-rewrite
+    categories: List[str] = list_field()  # fcg-rewrite
+    tool_call_count: int = 0  # fcg-rewrite
+    blocked_tools: List[str] = list_field()  # fcg-rewrite
+    suspicious_arguments: List[Dict[str, Any]] = list_field()  # fcg-rewrite
+
+
+class HallucinationResult(BaseModel):  # fcg-rewrite
+    risk_level: str = "no_risk"  # fcg-rewrite
+    categories: List[str] = list_field()  # fcg-rewrite
+    groundedness_score: Optional[float] = None  # fcg-rewrite
+    consistency_score: Optional[float] = None  # fcg-rewrite
+    flagged_claims: List[str] = list_field()  # fcg-rewrite
+
+
+class SkillAuditResponse(BaseModel):  # fcg-rewrite
     id: str
-    risk_level: int = Field(..., description="Risk level: 0=normal, 1=low, 2=medium, 3=high")
-    risk_label: str = Field(..., description="Risk label: normal, low_risk, medium_risk, high_risk")
-    classification: str = Field(..., description="Classification model output (e.g., Safety: Safe)")
-    analysis: str = Field(..., description="LLM analysis reasoning")
-    suggest_action: str = Field(..., description="Suggested action: pass, warn, block")
+    risk_level: int = Field(..., description="Risk level: 0=normal, 1=low, 2=medium, 3=high")  # fcg-rewrite
+    risk_label: str = Field(..., description="Risk label: normal, low_risk, medium_risk, high_risk")  # fcg-rewrite
+    classification: str = Field(..., description="Classification model output (e.g., Safety: Safe)")  # fcg-rewrite
+    analysis: str = Field(..., description="LLM analysis reasoning")  # fcg-rewrite
+    suggest_action: str = Field(..., description="Suggested action: pass, warn, block")  # fcg-rewrite
 
 
-class GuardrailResult(BaseModel):
-    """Guardrail detection result"""
-    compliance: ComplianceResult
-    security: SecurityResult
-    data: DataSecurityResult
-    # Legacy fields (kept for backward compatibility, populated from plugin_results)
-    agent_safety: Optional[AgentSafetyResult] = None
-    hallucination: Optional[HallucinationResult] = None
-    # Generic plugin results (new plugins add data here without modifying this class)
-    plugin_results: Optional[Dict[str, Any]] = None
+class GuardrailResult(BaseModel):  # fcg-rewrite
+    compliance: ComplianceResult  # fcg-rewrite
+    security: SecurityResult  # fcg-rewrite
+    data: DataSecurityResult  # fcg-rewrite
+    agent_safety: Optional[AgentSafetyResult] = None  # fcg-rewrite
+    hallucination: Optional[HallucinationResult] = None  # fcg-rewrite
+    plugin_results: Optional[Dict[str, Any]] = None  # fcg-rewrite
 
-class GuardrailResponse(BaseModel):
-    """Guardrail API response model"""
+
+class GuardrailResponse(BaseModel):  # fcg-rewrite
     id: str
-    result: GuardrailResult
-    overall_risk_level: str  # Overall risk level: no risk/low risk/medium risk/high risk
-    suggest_action: str  # Pass, Decline, Delegate
-    suggest_answer: Optional[str] = None
-    score: Optional[float] = None  # Detection probability score (0.0-1.0)
+    result: GuardrailResult  # fcg-rewrite
+    overall_risk_level: str  # fcg-rewrite
+    suggest_action: str  # fcg-rewrite
+    suggest_answer: Optional[str] = None  # fcg-rewrite
+    score: Optional[float] = None  # fcg-rewrite
 
-class DetectionResultResponse(BaseModel):
-    """Detection result response model"""
+
+class DetectionResultResponse(BaseModel):  # fcg-rewrite
     id: int
-    request_id: str
-    content: str
-    suggest_action: Optional[str]
-    suggest_answer: Optional[str]
-    hit_keywords: Optional[str]
-    created_at: datetime
-    ip_address: Optional[str]
-    # Separated security and compliance detection results
-    security_risk_level: str = "no_risk"
-    security_categories: List[str] = []
-    compliance_risk_level: str = "no_risk"
-    compliance_categories: List[str] = []
-    # Data security detection results
-    data_risk_level: str = "no_risk"
-    data_categories: List[str] = []
-    # Agent safety detection results
-    agent_safety_risk_level: str = "no_risk"
-    agent_safety_categories: List[str] = []
-    # Hallucination detection results
-    hallucination_risk_level: str = "no_risk"
-    hallucination_categories: List[str] = []
-    groundedness_score: Optional[float] = None
-    consistency_score: Optional[float] = None
-    # Detection result related fields
-    score: Optional[float] = None  # Detection probability score (0.0-1.0)
-    # 多模态相关字段
-    has_image: bool = False
-    image_count: int = 0
-    image_paths: List[str] = []
-    image_urls: List[str] = []  # Signed image access URLs
-    # Direct Model Access flag
-    is_direct_model_access: bool = False  # Whether this is a direct model access call
+    request_id: str  # fcg-rewrite
+    content: str  # fcg-rewrite
+    suggest_action: Optional[str]  # fcg-rewrite
+    suggest_answer: Optional[str]  # fcg-rewrite
+    hit_keywords: Optional[str]  # fcg-rewrite
+    created_at: datetime  # fcg-rewrite
+    ip_address: Optional[str]  # fcg-rewrite
+    security_risk_level: str = "no_risk"  # fcg-rewrite
+    security_categories: List[str] = list_field()  # fcg-rewrite
+    compliance_risk_level: str = "no_risk"  # fcg-rewrite
+    compliance_categories: List[str] = list_field()  # fcg-rewrite
+    data_risk_level: str = "no_risk"  # fcg-rewrite
+    data_categories: List[str] = list_field()  # fcg-rewrite
+    agent_safety_risk_level: str = "no_risk"  # fcg-rewrite
+    agent_safety_categories: List[str] = list_field()  # fcg-rewrite
+    hallucination_risk_level: str = "no_risk"  # fcg-rewrite
+    hallucination_categories: List[str] = list_field()  # fcg-rewrite
+    groundedness_score: Optional[float] = None  # fcg-rewrite
+    consistency_score: Optional[float] = None  # fcg-rewrite
+    score: Optional[float] = None  # fcg-rewrite
+    has_image: bool = False  # fcg-rewrite
+    image_count: int = 0  # fcg-rewrite
+    image_paths: List[str] = list_field()  # fcg-rewrite
+    image_urls: List[str] = list_field()  # fcg-rewrite
+    is_direct_model_access: bool = False  # fcg-rewrite
 
-class BlacklistResponse(BaseModel):
-    """Blacklist response model"""
+
+class NamedKeywordListResponse(BaseModel):  # fcg-rewrite
     id: int
-    name: str
-    keywords: List[str]
-    description: Optional[str]
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    name: str  # fcg-rewrite
+    keywords: List[str]  # fcg-rewrite
+    description: Optional[str]  # fcg-rewrite
+    is_active: bool  # fcg-rewrite
+    created_at: datetime  # fcg-rewrite
+    updated_at: datetime  # fcg-rewrite
 
-class WhitelistResponse(BaseModel):
-    """Whitelist response model"""
+
+class BlacklistResponse(NamedKeywordListResponse):  # fcg-rewrite
+    pass
+
+
+class WhitelistResponse(NamedKeywordListResponse):  # fcg-rewrite
+    pass
+
+
+class ResponseTemplateResponse(BaseModel):  # fcg-rewrite
     id: int
-    name: str
-    keywords: List[str]
-    description: Optional[str]
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    tenant_id: Optional[str] = None  # fcg-rewrite
+    application_id: Optional[str] = None  # fcg-rewrite
+    category: Optional[str] = None  # fcg-rewrite
+    scanner_type: Optional[str] = None  # fcg-rewrite
+    scanner_identifier: Optional[str] = None  # fcg-rewrite
+    scanner_name: Optional[str] = None  # fcg-rewrite
+    risk_level: str  # fcg-rewrite
+    template_content: Dict[str, str]  # fcg-rewrite
+    is_default: bool  # fcg-rewrite
+    is_active: bool  # fcg-rewrite
+    created_at: datetime  # fcg-rewrite
+    updated_at: datetime  # fcg-rewrite
 
-class ResponseTemplateResponse(BaseModel):
-    """Response template response model - supports all scanner types"""
+
+class SensitivityThresholdResponse(BaseModel):  # fcg-rewrite
+    high_sensitivity_threshold: float  # fcg-rewrite
+    medium_sensitivity_threshold: float  # fcg-rewrite
+    low_sensitivity_threshold: float  # fcg-rewrite
+    sensitivity_trigger_level: str  # fcg-rewrite
+
+
+class DashboardStats(BaseModel):  # fcg-rewrite
+    total_requests: int  # fcg-rewrite
+    security_risks: int  # fcg-rewrite
+    compliance_risks: int  # fcg-rewrite
+    data_leaks: int  # fcg-rewrite
+    high_risk_count: int  # fcg-rewrite
+    medium_risk_count: int  # fcg-rewrite
+    low_risk_count: int  # fcg-rewrite
+    safe_count: int  # fcg-rewrite
+    risk_distribution: Dict[str, int]  # fcg-rewrite
+    daily_trends: List[Dict[str, Any]]  # fcg-rewrite
+
+
+class PaginatedResponse(BaseModel):  # fcg-rewrite
+    items: List[Any]  # fcg-rewrite
+    total: int  # fcg-rewrite
+    page: int  # fcg-rewrite
+    per_page: int  # fcg-rewrite
+    pages: int  # fcg-rewrite
+
+
+class ApiResponse(BaseModel):  # fcg-rewrite
+    success: bool  # fcg-rewrite
+    message: str  # fcg-rewrite
+    data: Optional[Any] = None  # fcg-rewrite
+
+
+class ProxyCompletionResponse(BaseModel):  # fcg-rewrite
+    id: str
+    object: str = "chat.completion"  # fcg-rewrite
+    created: int  # fcg-rewrite
+    model: str  # fcg-rewrite
+    choices: List[Dict[str, Any]]  # fcg-rewrite
+    usage: Optional[Dict[str, int]] = None  # fcg-rewrite
+
+
+class ProxyModelListResponse(BaseModel):  # fcg-rewrite
+    object: str = "list"  # fcg-rewrite
+    data: List[Dict[str, Any]]  # fcg-rewrite
+
+
+class KnowledgeBaseResponse(BaseModel):  # fcg-rewrite
     id: int
-    tenant_id: Optional[str] = None
-    application_id: Optional[str] = None
+    category: Optional[str] = None  # fcg-rewrite
+    scanner_type: Optional[str] = None  # fcg-rewrite
+    scanner_identifier: Optional[str] = None  # fcg-rewrite
+    scanner_name: Optional[str] = None  # fcg-rewrite
+    name: str  # fcg-rewrite
+    description: Optional[str]  # fcg-rewrite
+    file_path: str  # fcg-rewrite
+    vector_file_path: Optional[str]  # fcg-rewrite
+    total_qa_pairs: int  # fcg-rewrite
+    similarity_threshold: float  # fcg-rewrite
+    is_active: bool  # fcg-rewrite
+    is_global: bool  # fcg-rewrite
+    is_disabled_by_me: bool = False  # fcg-rewrite
+    created_at: datetime  # fcg-rewrite
+    updated_at: datetime  # fcg-rewrite
 
-    # Support both legacy and new formats
-    category: Optional[str] = None
-    scanner_type: Optional[str] = None
-    scanner_identifier: Optional[str] = None
-    scanner_name: Optional[str] = None  # Scanner name from Scanner table (for custom/marketplace scanners)
 
-    risk_level: str
-    template_content: Dict[str, str]  # Multilingual content: {"en": "...", "zh": "...", ...}
-    is_default: bool
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
+class KnowledgeBaseFileInfo(BaseModel):  # fcg-rewrite
+    original_file_exists: bool  # fcg-rewrite
+    vector_file_exists: bool  # fcg-rewrite
+    original_file_size: int  # fcg-rewrite
+    vector_file_size: int  # fcg-rewrite
+    total_qa_pairs: int  # fcg-rewrite
 
-class SensitivityThresholdResponse(BaseModel):
-    """Sensitivity threshold configuration response model"""
-    high_sensitivity_threshold: float      # High sensitivity threshold
-    medium_sensitivity_threshold: float    # Medium sensitivity threshold
-    low_sensitivity_threshold: float       # Low sensitivity threshold
-    sensitivity_trigger_level: str         # Lowest sensitivity level to trigger detection
 
-class DashboardStats(BaseModel):
-    """Dashboard statistics data"""
-    total_requests: int
-    security_risks: int
-    compliance_risks: int
-    data_leaks: int
-    high_risk_count: int
-    medium_risk_count: int
-    low_risk_count: int
-    safe_count: int
-    risk_distribution: Dict[str, int]
-    daily_trends: List[Dict[str, Any]]
+class SimilarQuestionResult(BaseModel):  # fcg-rewrite
+    questionid: str  # fcg-rewrite
+    question: str  # fcg-rewrite
+    answer: str  # fcg-rewrite
+    similarity_score: float  # fcg-rewrite
+    rank: int  # fcg-rewrite
 
-class PaginatedResponse(BaseModel):
-    """Paginated response model"""
-    items: List[Any]
-    total: int
-    page: int
-    per_page: int
-    pages: int
 
-class ApiResponse(BaseModel):
-    """Generic API response"""
-    success: bool
-    message: str
-    data: Optional[Any] = None
-
-class ProxyCompletionResponse(BaseModel):
-    """Proxy completion response model"""
+class DataSecurityEntityTypeResponse(BaseModel):  # fcg-rewrite
     id: str
-    object: str = "chat.completion"
-    created: int
-    model: str
-    choices: List[Dict[str, Any]]
-    usage: Optional[Dict[str, int]] = None
+    entity_type: str  # fcg-rewrite
+    display_name: str  # fcg-rewrite
+    risk_level: str  # fcg-rewrite
+    pattern: str  # fcg-rewrite
+    anonymization_method: str  # fcg-rewrite
+    anonymization_config: Dict[str, Any]  # fcg-rewrite
+    check_input: bool  # fcg-rewrite
+    check_output: bool  # fcg-rewrite
+    is_active: bool  # fcg-rewrite
+    is_global: bool  # fcg-rewrite
+    created_at: datetime  # fcg-rewrite
+    updated_at: datetime  # fcg-rewrite
 
-class ProxyModelListResponse(BaseModel):
-    """Proxy model list response"""
-    object: str = "list"
-    data: List[Dict[str, Any]]
 
-class KnowledgeBaseResponse(BaseModel):
-    """Knowledge base response model - supports all scanner types"""
-    id: int
+class DifyModerationResponse(BaseModel):  # fcg-rewrite
+    model_config = ConfigDict(exclude_none=True)  # fcg-rewrite
+    result: Optional[str] = None  # fcg-rewrite
+    flagged: Optional[bool] = None  # fcg-rewrite
+    action: Optional[str] = None  # fcg-rewrite
+    preset_response: Optional[str] = None  # fcg-rewrite
+    inputs: Optional[Dict[str, Any]] = None  # fcg-rewrite
+    query: Optional[str] = None  # fcg-rewrite
+    text: Optional[str] = None  # fcg-rewrite
 
-    # Support both legacy and new formats
-    category: Optional[str] = None
-    scanner_type: Optional[str] = None
-    scanner_identifier: Optional[str] = None
-    scanner_name: Optional[str] = None  # Scanner human-readable name for display
 
-    name: str
-    description: Optional[str]
-    file_path: str
-    vector_file_path: Optional[str]
-    total_qa_pairs: int
-    similarity_threshold: float
-    is_active: bool
-    is_global: bool
-    is_disabled_by_me: bool = False  # Whether current user has disabled this global KB
-    created_at: datetime
-    updated_at: datetime
-
-class KnowledgeBaseFileInfo(BaseModel):
-    """知识库文件信息"""
-    original_file_exists: bool
-    vector_file_exists: bool
-    original_file_size: int
-    vector_file_size: int
-    total_qa_pairs: int
-
-class SimilarQuestionResult(BaseModel):
-    """Similar question search result"""
-    questionid: str
-    question: str
-    answer: str
-    similarity_score: float
-    rank: int
-
-class DataSecurityEntityTypeResponse(BaseModel):
-    """Data security entity type response model"""
+class ScannerResponse(BaseModel):  # fcg-rewrite
     id: str
-    entity_type: str
-    display_name: str
-    risk_level: str  # Low, Medium, High
-    pattern: str
-    anonymization_method: str
-    anonymization_config: Dict[str, Any]
-    check_input: bool
-    check_output: bool
-    is_active: bool
-    is_global: bool
-    created_at: datetime
-    updated_at: datetime
-
-class DifyModerationResponse(BaseModel):
-    """Dify API-based extension moderation response model"""
-    model_config = ConfigDict(exclude_none=True)  # Exclude None values from JSON serialization
-
-    result: Optional[str] = None  # For ping response: "pong"
-    flagged: Optional[bool] = None
-    action: Optional[str] = None  # "direct_output" or "overridden"
-    preset_response: Optional[str] = None  # For direct_output action
-    inputs: Optional[Dict[str, Any]] = None  # For overridden action (input moderation)
-    query: Optional[str] = None  # For overridden action (input moderation)
-    text: Optional[str] = None  # For overridden action (output moderation)
+    tag: str  # fcg-rewrite
+    name: str  # fcg-rewrite
+    description: Optional[str]  # fcg-rewrite
+    scanner_type: str  # fcg-rewrite
+    definition: str  # fcg-rewrite
+    default_risk_level: str  # fcg-rewrite
+    default_scan_prompt: bool  # fcg-rewrite
+    default_scan_response: bool  # fcg-rewrite
 
 
-# =====================================================
-# Scanner Package System Response Models
-# =====================================================
-
-class ScannerResponse(BaseModel):
-    """Scanner response model"""
+class PackageBase(BaseModel):  # fcg-rewrite
     id: str
-    tag: str
-    name: str
-    description: Optional[str]
-    scanner_type: str
-    definition: str
-    default_risk_level: str
-    default_scan_prompt: bool
-    default_scan_response: bool
+    package_code: str  # fcg-rewrite
+    package_name: str  # fcg-rewrite
+    author: str  # fcg-rewrite
+    description: Optional[str]  # fcg-rewrite
+    version: str  # fcg-rewrite
+    package_type: str  # fcg-rewrite
+    scanner_count: int  # fcg-rewrite
+    price: Optional[float] = None  # fcg-rewrite
+    price_display: Optional[str] = None  # fcg-rewrite
+    bundle: Optional[str] = None  # fcg-rewrite
 
 
-class PackageResponse(BaseModel):
-    """Scanner package response model"""
+class PackageResponse(PackageBase):  # fcg-rewrite
+    license: str  # fcg-rewrite
+    created_at: Optional[str]  # fcg-rewrite
+    updated_at: Optional[str]  # fcg-rewrite
+    archived: bool = False  # fcg-rewrite
+    archived_at: Optional[str] = None  # fcg-rewrite
+    archive_reason: Optional[str] = None  # fcg-rewrite
+
+
+class PackageDetailResponse(PackageBase):  # fcg-rewrite
+    license: str  # fcg-rewrite
+    scanners: List[Dict[str, Any]]  # fcg-rewrite
+    created_at: Optional[str]  # fcg-rewrite
+    updated_at: Optional[str]  # fcg-rewrite
+
+
+class MarketplacePackageResponse(PackageBase):  # fcg-rewrite
+    price_display: Optional[str]  # fcg-rewrite
+    purchase_status: Optional[str]  # fcg-rewrite
+    purchased: bool  # fcg-rewrite
+    purchase_requested: bool  # fcg-rewrite
+    created_at: Optional[str]  # fcg-rewrite
+
+
+class ScannerConfigResponse(BaseModel):  # fcg-rewrite
     id: str
-    package_code: str
-    package_name: str
-    author: str
-    description: Optional[str]
-    version: str
-    license: str
-    package_type: str
-    scanner_count: int
-    price: Optional[float] = None
-    price_display: Optional[str] = None
-    bundle: Optional[str] = None
-    created_at: Optional[str]
-    updated_at: Optional[str]
-    archived: bool = False
-    archived_at: Optional[str] = None
-    archive_reason: Optional[str] = None
+    tag: str  # fcg-rewrite
+    name: str  # fcg-rewrite
+    description: Optional[str]  # fcg-rewrite
+    scanner_type: str  # fcg-rewrite
+    package_name: str  # fcg-rewrite
+    package_id: Optional[str]  # fcg-rewrite
+    is_custom: bool  # fcg-rewrite
+    is_enabled: bool  # fcg-rewrite
+    risk_level: str  # fcg-rewrite
+    scan_prompt: bool  # fcg-rewrite
+    scan_response: bool  # fcg-rewrite
+    default_risk_level: str  # fcg-rewrite
+    default_scan_prompt: bool  # fcg-rewrite
+    default_scan_response: bool  # fcg-rewrite
+    has_risk_level_override: bool  # fcg-rewrite
+    has_scan_prompt_override: bool  # fcg-rewrite
+    has_scan_response_override: bool  # fcg-rewrite
 
 
-class PackageDetailResponse(BaseModel):
-    """Package detail response model (includes scanners)"""
+class CustomScannerResponse(ScannerResponse):  # fcg-rewrite
+    custom_scanner_id: str  # fcg-rewrite
+    notes: Optional[str]  # fcg-rewrite
+    created_by: str  # fcg-rewrite
+    created_at: Optional[str]  # fcg-rewrite
+    updated_at: Optional[str]  # fcg-rewrite
+    is_enabled: bool = True  # fcg-rewrite
+
+
+class PurchaseResponse(BaseModel):  # fcg-rewrite
     id: str
-    package_code: str
-    package_name: str
-    author: str
-    description: Optional[str]
-    version: str
-    license: str
-    package_type: str
-    scanner_count: int
-    price: Optional[float] = None
-    price_display: Optional[str] = None
-    bundle: Optional[str] = None
-    scanners: List[Dict[str, Any]]
-    created_at: Optional[str]
-    updated_at: Optional[str]
+    package_id: str  # fcg-rewrite
+    package_name: Optional[str]  # fcg-rewrite
+    package_code: Optional[str]  # fcg-rewrite
+    status: str  # fcg-rewrite
+    request_email: str  # fcg-rewrite
+    request_message: Optional[str]  # fcg-rewrite
+    rejection_reason: Optional[str]  # fcg-rewrite
+    approved_at: Optional[str]  # fcg-rewrite
+    created_at: Optional[str]  # fcg-rewrite
 
 
-class MarketplacePackageResponse(BaseModel):
-    """Marketplace package response model (no scanner definitions)"""
+class PurchasePendingResponse(BaseModel):  # fcg-rewrite
     id: str
-    package_code: str
-    package_name: str
-    author: str
-    description: Optional[str]
-    version: str
-    package_type: str
-    scanner_count: int
-    price: Optional[float] = None
-    price_display: Optional[str]
-    bundle: Optional[str] = None
-    purchase_status: Optional[str]  # None, 'pending', 'approved', 'rejected'
-    purchased: bool
-    purchase_requested: bool
-    created_at: Optional[str]
+    tenant_id: str  # fcg-rewrite
+    tenant_email: Optional[str]  # fcg-rewrite
+    package_id: str  # fcg-rewrite
+    package_name: Optional[str]  # fcg-rewrite
+    package_code: Optional[str]  # fcg-rewrite
+    request_email: str  # fcg-rewrite
+    request_message: Optional[str]  # fcg-rewrite
+    created_at: Optional[str]  # fcg-rewrite
 
 
-class ScannerConfigResponse(BaseModel):
-    """Scanner configuration response model"""
-    id: str
-    tag: str
-    name: str
-    description: Optional[str]
-    scanner_type: str
-    package_name: str
-    package_id: Optional[str]
-    is_custom: bool
-    # Effective settings (with overrides applied)
-    is_enabled: bool
-    risk_level: str
-    scan_prompt: bool
-    scan_response: bool
-    # Default values
-    default_risk_level: str
-    default_scan_prompt: bool
-    default_scan_response: bool
-    # Override indicators
-    has_risk_level_override: bool
-    has_scan_prompt_override: bool
-    has_scan_response_override: bool
-
-
-class CustomScannerResponse(BaseModel):
-    """Custom scanner response model"""
-    id: str
-    custom_scanner_id: str
-    tag: str
-    name: str
-    description: Optional[str]
-    scanner_type: str
-    definition: str
-    default_risk_level: str
-    default_scan_prompt: bool
-    default_scan_response: bool
-    notes: Optional[str]
-    created_by: str
-    created_at: Optional[str]
-    updated_at: Optional[str]
-    is_enabled: bool = True
-
-
-class PurchaseResponse(BaseModel):
-    """Purchase response model"""
-    id: str
-    package_id: str
-    package_name: Optional[str]
-    package_code: Optional[str]
-    status: str
-    request_email: str
-    request_message: Optional[str]
-    rejection_reason: Optional[str]
-    approved_at: Optional[str]
-    created_at: Optional[str]
-
-
-class PurchasePendingResponse(BaseModel):
-    """Pending purchase response model (for admin)"""
-    id: str
-    tenant_id: str
-    tenant_email: Optional[str]
-    package_id: str
-    package_name: Optional[str]
-    package_code: Optional[str]
-    request_email: str
-    request_message: Optional[str]
-    created_at: Optional[str]
-
-
-class PackageStatisticsResponse(BaseModel):
-    """Package statistics response model"""
-    package_id: str
-    package_name: str
-    total_purchases: int
-    approved_purchases: int
-    pending_purchases: int
-    scanner_count: int
+class PackageStatisticsResponse(BaseModel):  # fcg-rewrite
+    package_id: str  # fcg-rewrite
+    package_name: str  # fcg-rewrite
+    total_purchases: int  # fcg-rewrite
+    approved_purchases: int  # fcg-rewrite
+    pending_purchases: int  # fcg-rewrite
+    scanner_count: int  # fcg-rewrite

@@ -17,7 +17,7 @@ logger = setup_logger()
 _LOCAL_CACHE_TTL = 60  # seconds
 
 
-class AgentSafetyPolicyCache:
+class AgentSafetyPolicyStore:
     """DB-backed cache for agent safety policies with short local TTL."""
 
     def __init__(self):
@@ -108,4 +108,4 @@ class _PolicySnapshot:
 
 
 # Global instance
-agent_safety_cache = AgentSafetyPolicyCache()
+agent_safety_cache = AgentSafetyPolicyStore()

@@ -10,7 +10,7 @@ from plugins_builtin.skill_scanner.models import Finding
 
 
 # Pattern format: (compiled_regex, category, title, severity, remediation)
-def _compile_patterns(raw_patterns: List[Tuple[str, str, str, str, str]]):
+def _prebuild_patterns(raw_patterns: List[Tuple[str, str, str, str, str]]):
     compiled = []
     for pattern_str, category, title, severity, remediation in raw_patterns:
         try:
@@ -271,12 +271,12 @@ _HOMOGLYPH_RAW = [
 ]
 
 # Compile all patterns
-PROMPT_INJECTION_PATTERNS = _compile_patterns(_PROMPT_INJECTION_RAW)
-COMMAND_INJECTION_PATTERNS = _compile_patterns(_COMMAND_INJECTION_RAW)
-DATA_EXFILTRATION_PATTERNS = _compile_patterns(_DATA_EXFILTRATION_RAW)
-OBFUSCATION_PATTERNS = _compile_patterns(_OBFUSCATION_RAW)
-PLACEHOLDER_INJECTION_PATTERNS = _compile_patterns(_PLACEHOLDER_INJECTION_RAW)
-HOMOGLYPH_PATTERNS = _compile_patterns(_HOMOGLYPH_RAW)
+PROMPT_INJECTION_PATTERNS = _prebuild_patterns(_PROMPT_INJECTION_RAW)
+COMMAND_INJECTION_PATTERNS = _prebuild_patterns(_COMMAND_INJECTION_RAW)
+DATA_EXFILTRATION_PATTERNS = _prebuild_patterns(_DATA_EXFILTRATION_RAW)
+OBFUSCATION_PATTERNS = _prebuild_patterns(_OBFUSCATION_RAW)
+PLACEHOLDER_INJECTION_PATTERNS = _prebuild_patterns(_PLACEHOLDER_INJECTION_RAW)
+HOMOGLYPH_PATTERNS = _prebuild_patterns(_HOMOGLYPH_RAW)
 
 ALL_PATTERNS = (
     PROMPT_INJECTION_PATTERNS
@@ -288,7 +288,7 @@ ALL_PATTERNS = (
 )
 
 
-def _extract_tool_text(tool: Dict[str, Any]) -> Dict[str, str]:
+def _pull_tool_text(tool: Dict[str, Any]) -> Dict[str, str]:
     """Extract scannable text fields from a tool definition.
     Supports both nested {"type":"function","function":{...}} and flat format.
     Returns dict mapping field_path -> text.
@@ -351,7 +351,7 @@ class StaticPatternEngine(ScanEngine):
         for tool in tools:
             func = tool.get('function', tool)
             tool_name = func.get('name', 'unknown')
-            text_fields = _extract_tool_text(tool)
+            text_fields = _pull_tool_text(tool)
 
             for field_path, text in text_fields.items():
                 if not text:

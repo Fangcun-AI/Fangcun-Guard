@@ -48,10 +48,10 @@ def run_plugin_migrations(plugins: Dict[str, FangcunPlugin]) -> None:
         conn.commit()
 
         for plugin_name, migrations_dir in plugins_with_migrations.items():
-            _run_migrations_for_plugin(conn, plugin_name, migrations_dir)
+            _apply_plugin_migrations(conn, plugin_name, migrations_dir)
 
 
-def _run_migrations_for_plugin(conn, plugin_name: str, migrations_dir: Path) -> None:
+def _apply_plugin_migrations(conn, plugin_name: str, migrations_dir: Path) -> None:
     """Run pending migrations for a single plugin"""
     from sqlalchemy import text
 

@@ -11,7 +11,7 @@ from utils.logger import setup_logger
 logger = setup_logger()
 
 
-class HallucinationPolicyCache:
+class HallucinationPolicyStore:
     """Cache for hallucination detection policies (5 min TTL)"""
 
     def __init__(self):
@@ -96,4 +96,4 @@ class _HallucinationPolicySnapshot:
 
 
 # Global instance
-hallucination_cache = HallucinationPolicyCache()
+hallucination_cache = HallucinationPolicyStore()

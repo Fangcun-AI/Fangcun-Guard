@@ -18,7 +18,7 @@ logger = setup_logger()
 
 
 class PluginClass(DetectionPlugin):
-    """Agent Safety detection plugin"""
+    """Agent Runtime Firewall detection plugin"""
 
     def get_metadata(self) -> PluginMetadata:
         return PluginMetadata(
@@ -29,8 +29,8 @@ class PluginClass(DetectionPlugin):
             plugin_type=PluginType.DETECTION,
             deployment_mode=DeploymentMode.WHITE_BOX,
             priority=100,
-            display_name="Agent 安全防护",
-            display_name_en="Agent Safety",
+            display_name="Agent 运行时防火墙",
+            display_name_en="Agent Runtime Firewall",
             icon="shield-check",
             category="security",
             tags=["agent", "tool-call", "tool-definition", "reasoning", "injection"],

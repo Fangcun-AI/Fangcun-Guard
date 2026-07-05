@@ -10,14 +10,14 @@ import re
 import json
 import asyncio
 from typing import List, Dict, Any, Tuple, Optional
-from plugins_builtin.mcp_scanner.engines import McpScanEngine
+from plugins_builtin.mcp_scanner.engines import McpScanner
 from plugins_builtin.mcp_scanner.models import McpFinding
 from utils.logger import setup_logger
 
 logger = setup_logger()
 
 
-def _get_llm_client():
+def _acquire_llm_client():
     """Get OpenAI-compatible client. Uses SKILL_SCANNER_* env vars first."""
     from openai import AsyncOpenAI
     api_url = os.environ.get("SKILL_SCANNER_API_URL") or os.environ.get("GUARDRAILS_MODEL_API_URL", "http://localhost:58002/v1")
@@ -25,7 +25,7 @@ def _get_llm_client():
     return AsyncOpenAI(base_url=api_url, api_key=api_key)
 
 
-def _get_model_name():
+def _resolve_model_name():
     return os.environ.get("SKILL_SCANNER_MODEL_NAME") or os.environ.get("GUARDRAILS_MODEL_NAME", "deepseek-v3")
 
 
@@ -71,7 +71,7 @@ Also identify any false positives from Phase 1 findings:
 Return ONLY valid JSON with two keys: "findings" and "false_positive_indices"."""
 
 
-class LLMSemanticEngine(McpScanEngine):
+class LlmSemanticAnalyzer(McpScanner):
     """LLM-based deep semantic analysis for MCP items"""
 
     @property
@@ -91,8 +91,8 @@ class LLMSemanticEngine(McpScanEngine):
             logger.warning("openai package not available; LLM semantic engine skipped")
             return [], []
 
-        client = _get_llm_client()
-        model_name = _get_model_name()
+        client = _acquire_llm_client()
+        model_name = _resolve_model_name()
 
         # Prepare items (strip internal metadata)
         clean_items = []
@@ -272,8 +272,8 @@ async def enrich_findings_with_llm_streaming(findings: List[Dict[str, Any]], ser
     # Stream LLM response
     enriched_count = 0
     try:
-        client = _get_llm_client()
-        model_name = _get_model_name()
+        client = _acquire_llm_client()
+        model_name = _resolve_model_name()
         logger.info(f"MCP LLM streaming: model={model_name}, findings={len(findings)}")
         stream = await asyncio.wait_for(
             client.chat.completions.create(

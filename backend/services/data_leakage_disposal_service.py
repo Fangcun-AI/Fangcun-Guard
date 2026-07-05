@@ -1,502 +1,269 @@
-"""
-Data Leakage Disposal Service
+"""Resolve application data-safety policies and private-model fallbacks."""
 
-Handles data leakage disposal policy management and private model selection.
-"""
+from typing import Optional, Tuple  # fcg-rewrite
 
-import logging
-from typing import Optional, Tuple
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_  # fcg-rewrite
+from sqlalchemy.orm import Session  # fcg-rewrite
 
-from database.models import (
-    TenantDataLeakagePolicy,
-    ApplicationDataLeakagePolicy,
-    UpstreamApiConfig,
-    Application
+from database.models import (  # fcg-rewrite
+    Application,  # fcg-rewrite
+    ApplicationDataLeakagePolicy,  # fcg-rewrite
+    TenantDataLeakagePolicy,  # fcg-rewrite
+    UpstreamApiConfig,  # fcg-rewrite
 )
-from utils.logger import setup_logger
+from utils.logger import setup_logger  # fcg-rewrite
 
-logger = setup_logger()
+logger = setup_logger()  # fcg-rewrite
 
 
-class DataLeakageDisposalService:
-    """Service for managing data leakage disposal policies"""
+class LeakageMitigator:  # fcg-rewrite
+    """Policy reader used by gateway input, output, and streaming paths."""
 
-    # Valid disposal actions
-    # - block: Block the request entirely
-    # - switch_private_model: Switch to a private/on-premise model
-    # - anonymize: Anonymize sensitive data (one-way)
-    # - anonymize_restore: Anonymize with numbered placeholders, restore in output
-    # - pass: Allow the request (audit only)
-    VALID_ACTIONS = {'block', 'switch_private_model', 'anonymize', 'anonymize_restore', 'pass'}
+    VALID_ACTIONS = {  # fcg-rewrite
+        "block",  # fcg-rewrite
+        "switch_private_model",  # fcg-rewrite
+        "anonymize",  # fcg-rewrite
+        "anonymize_restore",  # fcg-rewrite
+        "pass",
+    }
+    RISK_LEVELS = {"high_risk", "medium_risk", "low_risk", "no_risk"}  # fcg-rewrite
+    DATA_DEFAULTS = {  # fcg-rewrite
+        "input": {  # fcg-rewrite
+            "high_risk": "block",  # fcg-rewrite
+            "medium_risk": "switch_private_model",  # fcg-rewrite
+            "low_risk": "anonymize",  # fcg-rewrite
+        },
+        "output": {  # fcg-rewrite
+            "high_risk": "block",  # fcg-rewrite
+            "medium_risk": "anonymize",  # fcg-rewrite
+            "low_risk": "pass",  # fcg-rewrite
+        },
+    }
+    GENERAL_DEFAULTS = {  # fcg-rewrite
+        "high_risk": "block",  # fcg-rewrite
+        "medium_risk": "replace",  # fcg-rewrite
+        "low_risk": "pass",  # fcg-rewrite
+    }
 
-    # Risk levels
-    RISK_LEVELS = {'high_risk', 'medium_risk', 'low_risk', 'no_risk'}
+    def __init__(self, db: Session):  # fcg-rewrite
+        self.db = db  # fcg-rewrite
 
-    def __init__(self, db: Session):
-        """
-        Initialize disposal service
+    def get_tenant_policy(self, tenant_id: str) -> Optional[TenantDataLeakagePolicy]:  # fcg-rewrite
+        return self._load_or_create(  # fcg-rewrite
+            TenantDataLeakagePolicy,  # fcg-rewrite
+            TenantDataLeakagePolicy.tenant_id,  # fcg-rewrite
+            tenant_id,  # fcg-rewrite
+            {"tenant_id": tenant_id},  # fcg-rewrite
+        )
 
-        Args:
-            db: Database session
-        """
-        self.db = db
-
-    def get_tenant_policy(self, tenant_id: str) -> Optional[TenantDataLeakagePolicy]:
-        """
-        Get tenant's default data leakage policy
-
-        If policy doesn't exist, create a default one.
-
-        Args:
-            tenant_id: Tenant ID
-
-        Returns:
-            TenantDataLeakagePolicy or None if tenant not found
-        """
+    def get_disposal_policy(  # fcg-rewrite
+        self, application_id: str  # fcg-rewrite
+    ) -> Optional[ApplicationDataLeakagePolicy]:  # fcg-rewrite
+        policy = self._find(  # fcg-rewrite
+            ApplicationDataLeakagePolicy,  # fcg-rewrite
+            ApplicationDataLeakagePolicy.application_id,  # fcg-rewrite
+            application_id,  # fcg-rewrite
+        )
+        if policy:  # fcg-rewrite
+            return policy  # fcg-rewrite
         try:
-            # Check if policy exists
-            policy = self.db.query(TenantDataLeakagePolicy).filter(
-                TenantDataLeakagePolicy.tenant_id == tenant_id
-            ).first()
-
-            if policy:
-                return policy
-
-            # Policy doesn't exist - create default
-            logger.info(f"Creating default tenant policy for tenant {tenant_id}")
-
-            default_policy = TenantDataLeakagePolicy(tenant_id=tenant_id)
-            self.db.add(default_policy)
-            self.db.commit()
-            self.db.refresh(default_policy)
-
-            logger.info(f"Created default tenant policy for tenant {tenant_id}")
-            return default_policy
-
-        except Exception as e:
-            logger.error(f"Error getting tenant policy: {e}", exc_info=True)
-            self.db.rollback()
-            return None
-
-    def get_disposal_policy(self, application_id: str) -> Optional[ApplicationDataLeakagePolicy]:
-        """
-        Get application's data leakage disposal policy
-
-        If policy doesn't exist, create a default one (with NULL overrides).
-
-        Args:
-            application_id: Application ID
-
-        Returns:
-            ApplicationDataLeakagePolicy or None if application not found
-        """
-        try:
-            # Check if policy exists
-            policy = self.db.query(ApplicationDataLeakagePolicy).filter(
-                ApplicationDataLeakagePolicy.application_id == application_id
-            ).first()
-
-            if policy:
-                return policy
-
-            # Policy doesn't exist - create default with NULL overrides (inherits from tenant)
-            logger.info(f"Creating default disposal policy for application {application_id}")
-
-            # Get application to find tenant_id
-            application = self.db.query(Application).filter(
-                Application.id == application_id
-            ).first()
-
-            if not application:
-                logger.error(f"Application {application_id} not found")
-                return None
-
-            # Create default policy with NULL overrides (will inherit from tenant defaults)
-            default_policy = ApplicationDataLeakagePolicy(
-                tenant_id=application.tenant_id,
-                application_id=application_id,
-                # All fields default to NULL = inherit from tenant
+            application = self._find(Application, Application.id, application_id)  # fcg-rewrite
+            if not application:  # fcg-rewrite
+                logger.error(f"Application {application_id} not found")  # fcg-rewrite
+                return None  # fcg-rewrite
+            policy = ApplicationDataLeakagePolicy(  # fcg-rewrite
+                tenant_id=application.tenant_id, application_id=application_id  # fcg-rewrite
             )
+            self.db.add(policy)  # fcg-rewrite
+            self.db.commit()  # fcg-rewrite
+            self.db.refresh(policy)  # fcg-rewrite
+            return policy  # fcg-rewrite
+        except Exception as exc:  # fcg-rewrite
+            logger.error(f"Failed to create application policy: {exc}", exc_info=True)  # fcg-rewrite
+            self.db.rollback()  # fcg-rewrite
+            return None  # fcg-rewrite
 
-            self.db.add(default_policy)
-            self.db.commit()
-            self.db.refresh(default_policy)
+    def get_disposal_action(  # fcg-rewrite
+        self, application_id: str, risk_level: str, direction: str = "input"  # fcg-rewrite
+    ) -> str:  # fcg-rewrite
+        if risk_level == "no_risk":  # fcg-rewrite
+            return "pass"  # fcg-rewrite
+        direction = "input" if direction == "input" else "output"  # fcg-rewrite
+        fallback = self.DATA_DEFAULTS[direction].get(risk_level, "block")  # fcg-rewrite
+        app_policy, tenant_policy = self._policy_pair(application_id)  # fcg-rewrite
+        if not app_policy or not tenant_policy:  # fcg-rewrite
+            return fallback  # fcg-rewrite
+        return self._inherit(  # fcg-rewrite
+            app_policy,  # fcg-rewrite
+            tenant_policy,  # fcg-rewrite
+            f"{direction}_{risk_level}_action",  # fcg-rewrite
+            f"default_{direction}_{risk_level}_action",  # fcg-rewrite
+            fallback,  # fcg-rewrite
+        )
 
-            logger.info(f"Created default disposal policy for application {application_id}")
-            return default_policy
+    def get_general_risk_action(  # fcg-rewrite
+        self, application_id: str, risk_level: str, direction: str = "input"  # fcg-rewrite
+    ) -> str:  # fcg-rewrite
+        if risk_level == "no_risk":  # fcg-rewrite
+            return "pass"  # fcg-rewrite
+        direction = "input" if direction == "input" else "output"  # fcg-rewrite
+        fallback = self.GENERAL_DEFAULTS.get(risk_level, "block")  # fcg-rewrite
+        app_policy, tenant_policy = self._policy_pair(application_id)  # fcg-rewrite
+        if not app_policy or not tenant_policy:  # fcg-rewrite
+            return fallback  # fcg-rewrite
+        return (  # fcg-rewrite
+            getattr(app_policy, f"general_{direction}_{risk_level}_action", None)  # fcg-rewrite
+            or getattr(tenant_policy, f"default_general_{direction}_{risk_level}_action", None)  # fcg-rewrite
+            or getattr(tenant_policy, f"default_general_{risk_level}_action", None)  # fcg-rewrite
+            or fallback  # fcg-rewrite
+        )
 
-        except Exception as e:
-            logger.error(f"Error getting disposal policy: {e}", exc_info=True)
-            self.db.rollback()
-            return None
-
-    def get_disposal_action(self, application_id: str, risk_level: str, direction: str = 'input') -> str:
-        """
-        Get disposal action for a specific risk level and direction
-
-        Args:
-            application_id: Application ID
-            risk_level: 'high_risk' | 'medium_risk' | 'low_risk' | 'no_risk'
-            direction: 'input' (default) or 'output'
-
-        Returns:
-            For input: 'block' | 'switch_private_model' | 'anonymize' | 'pass'
-            For output: boolean converted to action ('anonymize' or 'pass')
-        """
-        if risk_level == 'no_risk':
-            return 'pass'
-
-        app_policy = self.get_disposal_policy(application_id)
-        if not app_policy:
-            # Fallback to safe defaults if policy retrieval fails
-            logger.warning(f"No policy found for application {application_id}, using defaults")
-            if direction == 'input':
-                return {
-                    'high_risk': 'block',
-                    'medium_risk': 'switch_private_model',
-                    'low_risk': 'anonymize'
-                }.get(risk_level, 'block')
-            else:  # output
-                # Default: anonymize high/medium, pass low
-                return 'anonymize' if risk_level in ['high_risk', 'medium_risk'] else 'pass'
-
-        # Get tenant policy for defaults
-        tenant_policy = self.get_tenant_policy(str(app_policy.tenant_id))
-        if not tenant_policy:
-            logger.warning(f"No tenant policy found, using hardcoded defaults")
-            if direction == 'input':
-                return {
-                    'high_risk': 'block',
-                    'medium_risk': 'switch_private_model',
-                    'low_risk': 'anonymize'
-                }.get(risk_level, 'block')
-            else:
-                return 'anonymize' if risk_level in ['high_risk', 'medium_risk'] else 'pass'
-
-        if direction == 'input':
-            # Resolve input actions (use override if present, else tenant default)
-            action_map = {
-                'high_risk': app_policy.input_high_risk_action or tenant_policy.default_input_high_risk_action,
-                'medium_risk': app_policy.input_medium_risk_action or tenant_policy.default_input_medium_risk_action,
-                'low_risk': app_policy.input_low_risk_action or tenant_policy.default_input_low_risk_action
-            }
-        else:  # output
-            # Resolve output actions (use override if present, else tenant default)
-            # Uses the new output_xxx_risk_action fields (block/anonymize/pass)
-            action_map = {
-                'high_risk': app_policy.output_high_risk_action or tenant_policy.default_output_high_risk_action,
-                'medium_risk': app_policy.output_medium_risk_action or tenant_policy.default_output_medium_risk_action,
-                'low_risk': app_policy.output_low_risk_action or tenant_policy.default_output_low_risk_action
-            }
-
-        action = action_map.get(risk_level, 'block')
-        logger.debug(f"{direction.capitalize()} disposal action for {risk_level}: {action}")
-        return action
-
-    def get_general_risk_action(self, application_id: str, risk_level: str, direction: str = 'input') -> str:
-        """
-        Get action for general risks (security, safety, compliance)
-
-        Args:
-            application_id: Application ID
-            risk_level: 'high_risk' | 'medium_risk' | 'low_risk' | 'no_risk'
-            direction: 'input' (default) or 'output'
-
-        Returns:
-            'block' | 'replace' | 'pass'
-        """
-        if risk_level == 'no_risk':
-            return 'pass'
-
-        app_policy = self.get_disposal_policy(application_id)
-        if not app_policy:
-            # Fallback to safe defaults if policy retrieval fails
-            logger.warning(f"No policy found for application {application_id}, using general risk defaults")
-            return {
-                'high_risk': 'block',
-                'medium_risk': 'replace',
-                'low_risk': 'pass'
-            }.get(risk_level, 'block')
-
-        # Get tenant policy for defaults
-        tenant_policy = self.get_tenant_policy(str(app_policy.tenant_id))
-        if not tenant_policy:
-            logger.warning(f"No tenant policy found, using hardcoded general risk defaults")
-            return {
-                'high_risk': 'block',
-                'medium_risk': 'replace',
-                'low_risk': 'pass'
-            }.get(risk_level, 'block')
-
-        # Resolve general risk actions based on direction (use override if present, else tenant default)
-        if direction == 'input':
-            action_map = {
-                'high_risk': getattr(app_policy, 'general_input_high_risk_action', None) or getattr(tenant_policy, 'default_general_input_high_risk_action', None) or getattr(tenant_policy, 'default_general_high_risk_action', 'block') or 'block',
-                'medium_risk': getattr(app_policy, 'general_input_medium_risk_action', None) or getattr(tenant_policy, 'default_general_input_medium_risk_action', None) or getattr(tenant_policy, 'default_general_medium_risk_action', 'replace') or 'replace',
-                'low_risk': getattr(app_policy, 'general_input_low_risk_action', None) or getattr(tenant_policy, 'default_general_input_low_risk_action', None) or getattr(tenant_policy, 'default_general_low_risk_action', 'pass') or 'pass'
-            }
-        else:  # output
-            action_map = {
-                'high_risk': getattr(app_policy, 'general_output_high_risk_action', None) or getattr(tenant_policy, 'default_general_output_high_risk_action', None) or getattr(tenant_policy, 'default_general_high_risk_action', 'block') or 'block',
-                'medium_risk': getattr(app_policy, 'general_output_medium_risk_action', None) or getattr(tenant_policy, 'default_general_output_medium_risk_action', None) or getattr(tenant_policy, 'default_general_medium_risk_action', 'replace') or 'replace',
-                'low_risk': getattr(app_policy, 'general_output_low_risk_action', None) or getattr(tenant_policy, 'default_general_output_low_risk_action', None) or getattr(tenant_policy, 'default_general_low_risk_action', 'pass') or 'pass'
-            }
-
-        action = action_map.get(risk_level, 'pass')
-        logger.debug(f"General {direction} risk action for {risk_level}: {action}")
-        return action
-
-    def get_private_model(
-        self,
-        application_id: str,
-        tenant_id: str
-    ) -> Optional[UpstreamApiConfig]:
-        """
-        Get private model for switching (Simplified design)
-
-        Priority:
-        1. Application-configured private model (app_policy.private_model_id)
-        2. Tenant's default private model (is_default_private_model=True)
-        3. First available private model (fallback)
-
-        Args:
-            application_id: Application ID
-            tenant_id: Tenant ID
-
-        Returns:
-            UpstreamApiConfig or None if no private model available
-        """
+    def get_private_model(  # fcg-rewrite
+        self, application_id: str, tenant_id: str  # fcg-rewrite
+    ) -> Optional[UpstreamApiConfig]:  # fcg-rewrite
         try:
-            # Get application's disposal policy
-            app_policy = self.get_disposal_policy(application_id)
-
-            # 1. Check if application has configured a specific private model override
-            if app_policy and app_policy.private_model_id:
-                private_model = self.db.query(UpstreamApiConfig).filter(
-                    and_(
-                        UpstreamApiConfig.id == app_policy.private_model_id,
-                        UpstreamApiConfig.is_private_model == True,
-                        UpstreamApiConfig.is_active == True
+            app_policy = self.get_disposal_policy(application_id)  # fcg-rewrite
+            if app_policy and app_policy.private_model_id:  # fcg-rewrite
+                configured = (  # fcg-rewrite
+                    self.db.query(UpstreamApiConfig)  # fcg-rewrite
+                    .filter(  # fcg-rewrite
+                        and_(
+                            UpstreamApiConfig.id == app_policy.private_model_id,  # fcg-rewrite
+                            UpstreamApiConfig.is_private_model == True,  # fcg-rewrite
+                            UpstreamApiConfig.is_active == True,  # fcg-rewrite
+                        )
                     )
-                ).first()
-
-                if private_model:
-                    logger.info(f"Using application-configured private model: {private_model.config_name}")
-                    return private_model
-                else:
-                    logger.warning(f"Application's configured private model {app_policy.private_model_id} not found or inactive")
-
-            # 2. Check for tenant's default private model
-            default_private_model = self.db.query(UpstreamApiConfig).filter(
-                and_(
-                    UpstreamApiConfig.tenant_id == tenant_id,
-                    UpstreamApiConfig.is_private_model == True,
-                    UpstreamApiConfig.is_default_private_model == True,
-                    UpstreamApiConfig.is_active == True
+                    .first()  # fcg-rewrite
                 )
-            ).first()
+                if configured:  # fcg-rewrite
+                    return configured  # fcg-rewrite
 
-            if default_private_model:
-                logger.info(f"Using tenant's default private model: {default_private_model.config_name}")
-                return default_private_model
+            available = self._private_models_for(tenant_id)  # fcg-rewrite
+            return (  # fcg-rewrite
+                available.filter(UpstreamApiConfig.is_default_private_model == True).first()  # fcg-rewrite
+                or available.order_by(UpstreamApiConfig.created_at.asc()).first()  # fcg-rewrite
+            )
+        except Exception as exc:  # fcg-rewrite
+            logger.error(f"Failed to resolve private model: {exc}", exc_info=True)  # fcg-rewrite
+            return None  # fcg-rewrite
 
-            # 3. Fallback: Get first available private model
-            fallback_private_model = self.db.query(UpstreamApiConfig).filter(
-                and_(
-                    UpstreamApiConfig.tenant_id == tenant_id,
-                    UpstreamApiConfig.is_private_model == True,
-                    UpstreamApiConfig.is_active == True
-                )
-            ).order_by(UpstreamApiConfig.created_at.asc()).first()
+    def validate_disposal_action(  # fcg-rewrite
+        self, action: str, tenant_id: str, application_id: str  # fcg-rewrite
+    ) -> Tuple[bool, str]:  # fcg-rewrite
+        if action not in self.VALID_ACTIONS:  # fcg-rewrite
+            choices = ", ".join(sorted(self.VALID_ACTIONS))  # fcg-rewrite
+            return False, f"Invalid action '{action}'. Must be one of: {choices}"  # fcg-rewrite
+        if action == "switch_private_model" and not self.get_private_model(  # fcg-rewrite
+            application_id, tenant_id  # fcg-rewrite
+        ):
+            return False, "No private model configured. Please configure a data-private model first."  # fcg-rewrite
+        return True, ""  # fcg-rewrite
 
-            if fallback_private_model:
-                logger.info(f"Using first available private model: {fallback_private_model.config_name}")
-                return fallback_private_model
-
-            # No private model found
-            logger.warning(f"No private model found for tenant {tenant_id}")
-            return None
-
-        except Exception as e:
-            logger.error(f"Error getting private model: {e}", exc_info=True)
-            return None
-
-    def validate_disposal_action(
-        self,
-        action: str,
-        tenant_id: str,
-        application_id: str
-    ) -> Tuple[bool, str]:
-        """
-        Validate if a disposal action can be executed
-
-        Args:
-            action: Disposal action to validate
-            tenant_id: Tenant ID
-            application_id: Application ID
-
-        Returns:
-            Tuple of (is_valid, error_message)
-            - is_valid: True if action can be executed
-            - error_message: Description of why action is invalid (empty if valid)
-        """
-        if action not in self.VALID_ACTIONS:
-            return False, f"Invalid action '{action}'. Must be one of: {', '.join(self.VALID_ACTIONS)}"
-
-        # 'pass', 'block', and 'anonymize' don't require additional resources
-        if action in {'pass', 'block', 'anonymize'}:
-            return True, ""
-
-        # 'switch_private_model' requires a private model to be available
-        if action == 'switch_private_model':
-            private_model = self.get_private_model(application_id, tenant_id)
-            if private_model:
-                return True, ""
-            else:
-                return False, "No private model configured. Please configure a data-private model first."
-
-        return True, ""
-
-    def get_policy_settings(self, application_id: str) -> dict:
-        """
-        Get policy settings including feature flags (resolved from app override or tenant default)
-
-        Args:
-            application_id: Application ID
-
-        Returns:
-            Dictionary with policy settings
-        """
-        app_policy = self.get_disposal_policy(application_id)
-
-        if not app_policy:
-            return {
-                'enable_format_detection': True,
-                'enable_smart_segmentation': True
-            }
-
-        # Get tenant policy for defaults
-        tenant_policy = self.get_tenant_policy(str(app_policy.tenant_id))
-
-        # Resolve values (use override if present, else tenant default)
-        enable_format_detection = (app_policy.enable_format_detection
-                                   if app_policy.enable_format_detection is not None
-                                   else (tenant_policy.default_enable_format_detection if tenant_policy else True))
-
-        enable_smart_segmentation = (app_policy.enable_smart_segmentation
-                                     if app_policy.enable_smart_segmentation is not None
-                                     else (tenant_policy.default_enable_smart_segmentation if tenant_policy else True))
-
-        return {
-            'enable_format_detection': enable_format_detection,
-            'enable_smart_segmentation': enable_smart_segmentation
+    def get_policy_settings(self, application_id: str) -> dict:  # fcg-rewrite
+        app_policy, tenant_policy = self._policy_pair(application_id)  # fcg-rewrite
+        return {  # fcg-rewrite
+            "enable_format_detection": self._inherit(  # fcg-rewrite
+                app_policy,  # fcg-rewrite
+                tenant_policy,  # fcg-rewrite
+                "enable_format_detection",  # fcg-rewrite
+                "default_enable_format_detection",  # fcg-rewrite
+                True,
+            ),
+            "enable_smart_segmentation": self._inherit(  # fcg-rewrite
+                app_policy,  # fcg-rewrite
+                tenant_policy,  # fcg-rewrite
+                "enable_smart_segmentation",  # fcg-rewrite
+                "default_enable_smart_segmentation",  # fcg-rewrite
+                True,
+            ),
         }
 
-    def update_disposal_policy(
+    def update_disposal_policy(  # fcg-rewrite
         self,
-        application_id: str,
-        input_high_risk_action: Optional[str] = None,
-        input_medium_risk_action: Optional[str] = None,
-        input_low_risk_action: Optional[str] = None,
-        output_high_risk_anonymize: Optional[bool] = None,
-        output_medium_risk_anonymize: Optional[bool] = None,
-        output_low_risk_anonymize: Optional[bool] = None,
-        private_model_id: Optional[str] = None,
-        enable_format_detection: Optional[bool] = None,
-        enable_smart_segmentation: Optional[bool] = None
-    ) -> Tuple[bool, str, Optional[ApplicationDataLeakagePolicy]]:
-        """
-        Update disposal policy (deprecated - use API endpoints directly)
-
-        This method is kept for backward compatibility but new code should use
-        the data_leakage_policy_api endpoints directly.
-
-        Args:
-            application_id: Application ID
-            input_high_risk_action: Input action for high risk (optional, NULL = inherit)
-            input_medium_risk_action: Input action for medium risk (optional, NULL = inherit)
-            input_low_risk_action: Input action for low risk (optional, NULL = inherit)
-            output_high_risk_anonymize: Anonymize high risk output (optional, NULL = inherit)
-            output_medium_risk_anonymize: Anonymize medium risk output (optional, NULL = inherit)
-            output_low_risk_anonymize: Anonymize low risk output (optional, NULL = inherit)
-            private_model_id: Private model ID (optional, NULL = inherit)
-            enable_format_detection: Enable format detection (optional, NULL = inherit)
-            enable_smart_segmentation: Enable smart segmentation (optional, NULL = inherit)
-
-        Returns:
-            Tuple of (success, message, updated_policy)
-        """
+        application_id: str,  # fcg-rewrite
+        input_high_risk_action: Optional[str] = None,  # fcg-rewrite
+        input_medium_risk_action: Optional[str] = None,  # fcg-rewrite
+        input_low_risk_action: Optional[str] = None,  # fcg-rewrite
+        output_high_risk_anonymize: Optional[bool] = None,  # fcg-rewrite
+        output_medium_risk_anonymize: Optional[bool] = None,  # fcg-rewrite
+        output_low_risk_anonymize: Optional[bool] = None,  # fcg-rewrite
+        private_model_id: Optional[str] = None,  # fcg-rewrite
+        enable_format_detection: Optional[bool] = None,  # fcg-rewrite
+        enable_smart_segmentation: Optional[bool] = None,  # fcg-rewrite
+    ) -> Tuple[bool, str, Optional[ApplicationDataLeakagePolicy]]:  # fcg-rewrite
+        values = locals().copy()  # fcg-rewrite
+        values.pop("self")  # fcg-rewrite
+        values.pop("application_id")  # fcg-rewrite
         try:
-            policy = self.get_disposal_policy(application_id)
-            if not policy:
-                return False, "Failed to retrieve or create policy", None
+            policy = self.get_disposal_policy(application_id)  # fcg-rewrite
+            if not policy:  # fcg-rewrite
+                return False, "Failed to retrieve or create policy", None  # fcg-rewrite
+            for field, value in values.items():  # fcg-rewrite
+                if field.startswith("input_") and field.endswith("_action"):  # fcg-rewrite
+                    if value is not None and value not in self.VALID_ACTIONS:  # fcg-rewrite
+                        return False, f"Invalid {field}: {value}", None  # fcg-rewrite
+                if value is not None:  # fcg-rewrite
+                    setattr(policy, field, value)  # fcg-rewrite
+            self.db.commit()  # fcg-rewrite
+            self.db.refresh(policy)  # fcg-rewrite
+            return True, "Policy updated successfully", policy  # fcg-rewrite
+        except Exception as exc:  # fcg-rewrite
+            logger.error(f"Failed to update policy: {exc}", exc_info=True)  # fcg-rewrite
+            self.db.rollback()  # fcg-rewrite
+            return False, f"Error updating policy: {exc}", None  # fcg-rewrite
 
-            # Validate actions if provided
-            for action_name, action_value in [
-                ('input_high_risk_action', input_high_risk_action),
-                ('input_medium_risk_action', input_medium_risk_action),
-                ('input_low_risk_action', input_low_risk_action)
-            ]:
-                if action_value and action_value not in self.VALID_ACTIONS:
-                    return False, f"Invalid {action_name}: {action_value}", None
-
-            # Update fields if provided
-            if input_high_risk_action is not None:
-                policy.input_high_risk_action = input_high_risk_action
-            if input_medium_risk_action is not None:
-                policy.input_medium_risk_action = input_medium_risk_action
-            if input_low_risk_action is not None:
-                policy.input_low_risk_action = input_low_risk_action
-            if output_high_risk_anonymize is not None:
-                policy.output_high_risk_anonymize = output_high_risk_anonymize
-            if output_medium_risk_anonymize is not None:
-                policy.output_medium_risk_anonymize = output_medium_risk_anonymize
-            if output_low_risk_anonymize is not None:
-                policy.output_low_risk_anonymize = output_low_risk_anonymize
-            if private_model_id is not None:
-                policy.private_model_id = private_model_id
-            if enable_format_detection is not None:
-                policy.enable_format_detection = enable_format_detection
-            if enable_smart_segmentation is not None:
-                policy.enable_smart_segmentation = enable_smart_segmentation
-
-            self.db.commit()
-            self.db.refresh(policy)
-
-            logger.info(f"Updated disposal policy for application {application_id}")
-            return True, "Policy updated successfully", policy
-
-        except Exception as e:
-            logger.error(f"Error updating disposal policy: {e}", exc_info=True)
-            self.db.rollback()
-            return False, f"Error updating policy: {str(e)}", None
-
-    def list_available_private_models(self, tenant_id: str) -> list:
-        """
-        List all available private models for a tenant
-
-        Args:
-            tenant_id: Tenant ID
-
-        Returns:
-            List of safe UpstreamApiConfig objects
-        """
+    def list_available_private_models(self, tenant_id: str) -> list:  # fcg-rewrite
         try:
-            private_models = self.db.query(UpstreamApiConfig).filter(
-                and_(
-                    UpstreamApiConfig.tenant_id == tenant_id,
-                    UpstreamApiConfig.is_private_model == True,
-                    UpstreamApiConfig.is_active == True
+            return (  # fcg-rewrite
+                self._private_models_for(tenant_id)  # fcg-rewrite
+                .order_by(  # fcg-rewrite
+                    UpstreamApiConfig.is_default_private_model.desc(),  # fcg-rewrite
+                    UpstreamApiConfig.created_at.asc(),  # fcg-rewrite
                 )
-            ).order_by(
-                UpstreamApiConfig.is_default_private_model.desc(),
-                UpstreamApiConfig.created_at.asc()
-            ).all()
+                .all()
+            )
+        except Exception as exc:  # fcg-rewrite
+            logger.error(f"Failed to list private models: {exc}", exc_info=True)  # fcg-rewrite
+            return []  # fcg-rewrite
 
-            return private_models
+    def _policy_pair(self, application_id: str):  # fcg-rewrite
+        app_policy = self.get_disposal_policy(application_id)  # fcg-rewrite
+        tenant_policy = (  # fcg-rewrite
+            self.get_tenant_policy(str(app_policy.tenant_id)) if app_policy else None  # fcg-rewrite
+        )
+        return app_policy, tenant_policy  # fcg-rewrite
 
-        except Exception as e:
-            logger.error(f"Error listing private models: {e}", exc_info=True)
-            return []
+    def _private_models_for(self, tenant_id: str):  # fcg-rewrite
+        return self.db.query(UpstreamApiConfig).filter(  # fcg-rewrite
+            and_(
+                UpstreamApiConfig.tenant_id == tenant_id,  # fcg-rewrite
+                UpstreamApiConfig.is_private_model == True,  # fcg-rewrite
+                UpstreamApiConfig.is_active == True,  # fcg-rewrite
+            )
+        )
+
+    def _find(self, model, field, value):  # fcg-rewrite
+        return self.db.query(model).filter(field == value).first()  # fcg-rewrite
+
+    def _load_or_create(self, model, field, value, create_values):  # fcg-rewrite
+        existing = self._find(model, field, value)  # fcg-rewrite
+        if existing:  # fcg-rewrite
+            return existing  # fcg-rewrite
+        try:
+            record = model(**create_values)  # fcg-rewrite
+            self.db.add(record)  # fcg-rewrite
+            self.db.commit()  # fcg-rewrite
+            self.db.refresh(record)  # fcg-rewrite
+            return record  # fcg-rewrite
+        except Exception as exc:  # fcg-rewrite
+            logger.error(f"Failed to create {model.__name__}: {exc}", exc_info=True)  # fcg-rewrite
+            self.db.rollback()  # fcg-rewrite
+            return None  # fcg-rewrite
+
+    @staticmethod  # fcg-rewrite
+    def _inherit(app_policy, tenant_policy, app_field: str, tenant_field: str, fallback):  # fcg-rewrite
+        app_value = getattr(app_policy, app_field, None) if app_policy else None  # fcg-rewrite
+        if app_value is not None:  # fcg-rewrite
+            return app_value  # fcg-rewrite
+        tenant_value = getattr(tenant_policy, tenant_field, None) if tenant_policy else None  # fcg-rewrite
+        return fallback if tenant_value is None else tenant_value  # fcg-rewrite

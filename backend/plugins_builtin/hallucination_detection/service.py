@@ -12,7 +12,7 @@ from utils.logger import setup_logger
 logger = setup_logger()
 
 
-class HallucinationDetectionService:
+class HallucinationProbe:
     """Hallucination detection service - groundedness checking and consistency analysis"""
 
     GROUNDEDNESS_SYSTEM_PROMPT = (
@@ -236,4 +236,4 @@ class HallucinationDetectionService:
 
 
 # Global instance
-hallucination_detection_service = HallucinationDetectionService()
+hallucination_detection_service = HallucinationProbe()

@@ -1,264 +1,194 @@
-from sqlalchemy import create_engine
-from sqlalchemy import text
+"""Database engines, sessions, and idempotent startup initialization."""
+
+import asyncio
+import importlib.util
+from pathlib import Path
+
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
+
 from config import settings
 
-# Create PostgreSQL database engine - optimized for separated services
-# Detection service engine - minimal connection pool (only for authentication)
-detection_engine = create_engine(
-    settings.database_url,
-    pool_size=8,  # Detection service connection pool (supports high concurrency)
-    max_overflow=8,  # Detection service overflow connection
-    pool_pre_ping=True,
-    pool_recycle=1800,
-    pool_timeout=30,
-    echo=False
-)
+_ENGINE_OPTIONS = {
+    "pool_pre_ping": True,
+    "pool_recycle": 1800,
+    "pool_timeout": 30,
+    "echo": False,
+}
 
-# Management service engine - low concurrency optimization
-admin_engine = create_engine(
-    settings.database_url,
-    pool_size=10,  # Management service connection pool (increased for better concurrency)
-    max_overflow=20,  # Management service overflow connection (increased for peak loads)
-    pool_pre_ping=True,
-    pool_recycle=1800,
-    pool_timeout=30,
-    echo=False
-)
 
-# Proxy service engine - medium concurrency optimization
-proxy_engine = create_engine(
-    settings.database_url,
-    pool_size=3,  # Proxy service connection pool (reduced from 5)
-    max_overflow=5,  # Proxy service overflow connection (reduced from 10)
-    pool_pre_ping=True,
-    pool_recycle=1800,
-    pool_timeout=30,
-    echo=False
-)
+def _engine(pool_size: int, max_overflow: int):
+    return create_engine(
+        settings.database_url,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        **_ENGINE_OPTIONS,
+    )
 
-# Default engine (backward compatibility)
+
+detection_engine = _engine(8, 8)
+admin_engine = _engine(10, 20)
+proxy_engine = _engine(3, 5)
 engine = detection_engine
 
-# Create session - separated services
 DetectionSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=detection_engine)
 AdminSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=admin_engine)
 ProxySessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=proxy_engine)
-
-# Default session (backward compatibility)
 SessionLocal = DetectionSessionLocal
-
-# Create base class
 Base = declarative_base()
 
+
 def get_database_url():
-    """Get database URL"""
     return settings.database_url
 
-def get_db():
-    """Get database session"""
-    db = SessionLocal()
+
+def _yield_session(factory):
+    session = factory()
     try:
-        yield db
+        yield session
     finally:
-        db.close()
+        session.close()
+
+
+def get_db():
+    yield from _yield_session(SessionLocal)
+
 
 def get_admin_db():
-    """Get admin service database session"""
-    db = AdminSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    yield from _yield_session(AdminSessionLocal)
+
 
 def get_proxy_db():
-    """Get proxy service database session"""
-    db = ProxySessionLocal()
+    yield from _yield_session(ProxySessionLocal)
+
+
+def get_db_session():
+    return SessionLocal()
+
+
+def get_detection_db_session():
+    return DetectionSessionLocal()
+
+
+def get_admin_db_session():
+    return AdminSessionLocal()
+
+
+def get_proxy_db_session():
+    return ProxySessionLocal()
+
+
+def create_detection_engine():
+    return detection_engine
+
+
+def create_admin_engine():
+    return admin_engine
+
+
+def create_proxy_engine():
+    return proxy_engine
+
+
+def _reset_schema(connection) -> None:
     try:
-        yield db
+        for table in ("proxy_configs", "email_verifications", "user_switches"):
+            connection.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
+        Base.metadata.drop_all(bind=connection)
+    except Exception:
+        connection.execute(text("DROP SCHEMA public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+        connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
+
+
+def _seed_defaults(db: Session) -> None:
+    from database.models import ResponseTemplate, SystemConfig
+
+    if db.query(SystemConfig).filter_by(config_key="initialized").first():
+        return
+    db.add(SystemConfig(config_key="initialized", config_value="true", description="System initialization flag"))
+    db.add(SystemConfig(config_key="default_action", config_value="reject", description="Default action for high risk content"))
+    responses = {
+        "S1": "I'm sorry, I can't discuss political topics.",
+        "S2": "I'm sorry, I can't answer questions involving sensitive political topics.",
+        "S3": "I'm sorry, I can't answer questions that may damage national image.",
+        "S4": "I'm sorry, I can't provide content that may harm minors.",
+        "S5": "I'm sorry, I can't answer questions involving violent crime.",
+        "S6": "I'm sorry, I can't provide content involving illegal activities.",
+        "S7": "I'm sorry, I can't provide content involving pornography.",
+        "S8": "I'm sorry, but I cannot engage with content containing hate speech or discrimination.",
+        "S9": "I'm sorry, I can't answer questions involving prompt injection attacks.",
+        "S10": "I'm sorry, but I cannot respond to profanity or offensive language.",
+        "S11": "I'm sorry, I can't discuss content involving personal privacy. Please respect others' privacy.",
+        "S12": "I'm sorry, I can't provide advice on possible business violations. Please consult with a professional.",
+        "default": "I'm sorry, I can't answer this question. Please contact customer service if you have any questions.",
+    }
+    for category, content in responses.items():
+        db.add(ResponseTemplate(category=category, risk_level="high_risk", template_content=content, is_default=True))
+    db.commit()
+
+
+def _run_migrations(logger) -> None:
+    path = Path(__file__).parent.parent / "migrations" / "run_migrations.py"
+    if not path.exists():
+        logger.warning("Migrations directory not found, skipping migrations")
+        return
+    try:
+        spec = importlib.util.spec_from_file_location("run_migrations", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        executed, failed = module.run_migrations(dry_run=False)
+        logger.info("Database migrations completed: executed=%s failed=%s", executed, failed)
+    except Exception as error:
+        logger.error("Failed to run migrations: %s", error)
+
+
+def _load_builtin_scanners(logger) -> None:
+    from services.builtin_scanner_loader import load_builtin_scanner_packages
+
+    db = AdminSessionLocal()
+    try:
+        summary = load_builtin_scanner_packages(db)
+        logger.info("Built-in scanner packages ensured: %s", summary)
+    except FileNotFoundError as error:
+        logger.warning("Built-in scanners directory missing: %s", error)
     finally:
         db.close()
 
-def get_db_session():
-    """Get database session (non-generator version)"""
-    return SessionLocal()
-
-def get_detection_db_session():
-    """Get detection service database session"""
-    return DetectionSessionLocal()
-
-def get_admin_db_session():
-    """Get management service database session"""
-    return AdminSessionLocal()
-
-def get_proxy_db_session():
-    """Get proxy service database session"""
-    return ProxySessionLocal()
-
-def create_detection_engine():
-    """Create detection service engine"""
-    return detection_engine
-
-def create_admin_engine():
-    """Create management service engine"""
-    return admin_engine
-
-def create_proxy_engine():
-    """Create proxy service engine"""
-    return proxy_engine
 
 async def init_db(minimal=False):
-    """Initialize database (using PostgreSQL advisory lock, avoid multi-process concurrent initialization; lock and business transaction use different connections)
-
-    Args:
-        minimal: Whether to minimize initialization (detection service used)
-    """
-    from database.models import (
-        DetectionResult, Blacklist, Whitelist, ResponseTemplate, SystemConfig,
-        Tenant, EmailVerification, TenantSwitch, BanPolicy, UserBanRecord, UserRiskTrigger
-    )
+    """Create tables once per deployment process group and load control-plane defaults."""
+    import database.models  # noqa: F401
     from services.admin_service import admin_service
     from utils.logger import setup_logger
 
     logger = setup_logger()
-    lock_key = 0x5A6F_5858_4941_4752  # Fixed 64-bit lock key
-
-    # 1) Use independent auto-commit connection to get/release advisory lock (do not reuse the same connection with business transactions)
-    # Management service is responsible for full initialization
-    init_engine = admin_engine if not minimal else detection_engine
-
-    # Try to acquire lock with pg_try_advisory_lock to avoid blocking all workers
-    with init_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as lock_conn:
-        result = lock_conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": lock_key})
-        lock_acquired = result.scalar()
-
-        if not lock_acquired:
-            # Another worker is initializing, wait briefly and verify database is ready
-            logger.info("Another process is initializing database, waiting...")
-            import asyncio
-            await asyncio.sleep(2)  # Wait 2 seconds for initialization to complete
-
-            # Verify database is ready by checking if required tables exist
+    selected_engine = detection_engine if minimal else admin_engine
+    lock_key = 0x5A6F_5858_4941_4752
+    with selected_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as lock:
+        acquired = lock.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": lock_key}).scalar()
+        if not acquired:
+            logger.info("Another process is initializing the database")
+            await asyncio.sleep(2)
             try:
-                with init_engine.connect() as verify_conn:
-                    verify_conn.execute(text("SELECT 1 FROM tenants LIMIT 1"))
-                logger.info("Database initialization completed by another process")
-                return
-            except Exception as e:
-                # If tables don't exist yet, wait a bit more and retry
-                logger.warning(f"Database not ready yet, waiting longer... ({e})")
+                with selected_engine.connect() as verify:
+                    verify.execute(text("SELECT 1 FROM tenants LIMIT 1"))
+            except Exception as error:
+                logger.warning("Database initialization is still in progress: %s", error)
                 await asyncio.sleep(3)
-                return
-
+            return
         try:
-            # 2) Execute DDL and initialization in a new transaction, avoid transaction state interference with the lock connection
-            with init_engine.begin() as tx_conn:
+            with selected_engine.begin() as connection:
                 if settings.reset_database_on_startup:
-                    # Safely cascade delete all tables, maintain backward compatibility with old data format
-                    try:
-                        # Try to delete tables with foreign key dependencies first
-                        tx_conn.execute(text("DROP TABLE IF EXISTS proxy_configs CASCADE"))
-                        tx_conn.execute(text("DROP TABLE IF EXISTS email_verifications CASCADE"))
-                        tx_conn.execute(text("DROP TABLE IF EXISTS user_switches CASCADE"))
-                        # Then delete other tables
-                        Base.metadata.drop_all(bind=tx_conn)
-                    except Exception as e:
-                        # If there is still a problem, use cascade delete
-                        tx_conn.execute(text("DROP SCHEMA public CASCADE"))
-                        tx_conn.execute(text("CREATE SCHEMA public"))
-                        tx_conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
-
-                # checkfirst=True (default), only create missing tables, maintain backward compatibility
-                Base.metadata.create_all(bind=tx_conn)
-
-                # Use the same connection for idempotent initialization
-                db = Session(bind=tx_conn)
-
-                # Detection service only needs basic table structure, management service needs full initialization
+                    _reset_schema(connection)
+                Base.metadata.create_all(bind=connection)
                 if not minimal:
-                    # Create super admin account (idempotent)
-                    admin_service.create_super_admin_if_not_exists(db)
-
-                    # Initialize default data (idempotent)
-                    existing_config = db.query(SystemConfig).filter_by(config_key="initialized").first()
-                    if not existing_config:
-                        default_configs = [
-                            SystemConfig(config_key="initialized", config_value="true", description="System initialization flag"),
-                            SystemConfig(config_key="default_action", config_value="reject", description="Default action for high risk content"),
-                        ]
-
-                        default_responses = [
-                            ResponseTemplate(category="S1", risk_level="high_risk", template_content="I'm sorry, I can't discuss political topics.", is_default=True),
-                            ResponseTemplate(category="S2", risk_level="high_risk", template_content="I'm sorry, I can't answer questions involving sensitive political topics.", is_default=True),
-                            ResponseTemplate(category="S3", risk_level="high_risk", template_content="I'm sorry, I can't answer questions that may damage national image.", is_default=True),
-                            ResponseTemplate(category="S4", risk_level="high_risk", template_content="I'm sorry, I can't provide content that may harm minors.", is_default=True),
-                            ResponseTemplate(category="S5", risk_level="high_risk", template_content="I'm sorry, I can't answer questions involving violent crime.", is_default=True),
-                            ResponseTemplate(category="S6", risk_level="high_risk", template_content="I'm sorry, I can't provide content involving illegal activities.", is_default=True),
-                            ResponseTemplate(category="S7", risk_level="high_risk", template_content="I'm sorry, I can't provide content involving pornography.", is_default=True),
-                            ResponseTemplate(category="S8", risk_level="high_risk", template_content="I'm sorry, but I cannot engage with content containing hate speech or discrimination.", is_default=True),
-                            ResponseTemplate(category="S9", risk_level="high_risk", template_content="I'm sorry, I can't answer questions involving prompt injection attacks.", is_default=True),
-                            ResponseTemplate(category="S10", risk_level="high_risk", template_content="I'm sorry, but I cannot respond to profanity or offensive language.", is_default=True),
-                            ResponseTemplate(category="S11", risk_level="high_risk", template_content="I'm sorry, I can't discuss content involving personal privacy. Please respect others' privacy.", is_default=True),
-                            ResponseTemplate(category="S12", risk_level="high_risk", template_content="I'm sorry, I can't provide advice on possible business violations. Please consult with a professional.", is_default=True),
-                            ResponseTemplate(category="default", risk_level="high_risk", template_content="I'm sorry, I can't answer this question. Please contact customer service if you have any questions.", is_default=True),
-                        ]
-
-                        for config in default_configs:
-                            db.add(config)
-                        for response in default_responses:
-                            db.add(response)
-                        db.commit()
-
-            # Run database migrations BEFORE loading scanner packages
-            # This ensures new columns (like applications.source) exist before they're queried
-            # Critical for upgrades where tables exist but new columns don't
+                    db = Session(bind=connection)
+                    admin_service.seed_super_admin(db)
+                    _seed_defaults(db)
             if not minimal:
-                logger.info("Running database migrations...")
-                try:
-                    from pathlib import Path
-                    import importlib.util
-
-                    # Import and run migrations module
-                    migrations_path = Path(__file__).parent.parent / "migrations" / "run_migrations.py"
-                    if migrations_path.exists():
-                        spec = importlib.util.spec_from_file_location("run_migrations", migrations_path)
-                        migrations_module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(migrations_module)
-
-                        # Run migrations (it will use its own advisory lock)
-                        executed, failed = migrations_module.run_migrations(dry_run=False)
-                        if failed > 0:
-                            logger.error(f"Database migrations failed: {failed} migration(s) failed")
-                        else:
-                            logger.info(f"Database migrations completed: {executed} migration(s) executed")
-                    else:
-                        logger.warning("Migrations directory not found, skipping migrations")
-                except Exception as e:
-                    logger.error(f"Failed to run migrations: {e}")
-                    import traceback
-                    traceback.print_exc()
-
-            # Load built-in scanner packages AFTER migrations have run
-            # This ensures columns like applications.source exist before being queried
-            if not minimal:
-                from services.builtin_scanner_loader import load_builtin_scanner_packages
-
-                loader_db = AdminSessionLocal()
-                try:
-                    summary = load_builtin_scanner_packages(loader_db)
-                    logger.info(
-                        "Built-in scanner packages ensured (packages=%d, scanners=%d)",
-                        summary["packages"],
-                        summary["scanners"],
-                    )
-                except FileNotFoundError as err:
-                    logger.warning("Built-in scanners directory missing: %s", err)
-                except Exception as err:
-                    logger.error(f"Failed to load built-in scanner packages: {err}")
-                    raise
-                finally:
-                    loader_db.close()
+                _run_migrations(logger)
+                _load_builtin_scanners(logger)
         finally:
-            # 3) Release advisory lock (still use independent auto-commit connection)
-            lock_conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": lock_key})
+            lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": lock_key})

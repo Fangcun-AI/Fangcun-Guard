@@ -10,8 +10,8 @@ import time
 from typing import List, Dict, Any
 from plugins_builtin.mcp_scanner.models import McpFinding, FindingSeverity, McpScannerResult
 from plugins_builtin.mcp_scanner.engines.yara_rules import YaraRulesEngine
-from plugins_builtin.mcp_scanner.engines.llm_semantic import LLMSemanticEngine
-from plugins_builtin.mcp_scanner.engines.behavior_analysis import BehaviorAnalysisEngine
+from plugins_builtin.mcp_scanner.engines.llm_semantic import LlmSemanticAnalyzer
+from plugins_builtin.mcp_scanner.engines.behavior_analysis import BehaviorAnalyzer
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -22,13 +22,13 @@ SEVERITY_ORDER = {
 SEVERITY_REVERSE = {v: k for k, v in SEVERITY_ORDER.items()}
 
 
-class McpScannerService:
+class McpProbeService:
     """Orchestrates the MCP server scanning pipeline."""
 
     def __init__(self):
         self.yara_engine = YaraRulesEngine()
-        self.llm_engine = LLMSemanticEngine()
-        self.cross_server_engine = BehaviorAnalysisEngine()
+        self.llm_engine = LlmSemanticAnalyzer()
+        self.cross_server_engine = BehaviorAnalyzer()
 
     async def scan_mcp_server_data(
         self,
@@ -222,4 +222,4 @@ class McpScannerService:
 
 
 # Global singleton
-mcp_scanner_service = McpScannerService()
+mcp_scanner_service = McpProbeService()

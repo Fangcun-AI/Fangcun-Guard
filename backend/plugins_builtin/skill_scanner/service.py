@@ -8,8 +8,8 @@ from typing import List, Dict, Any
 from plugins_builtin.skill_scanner.models import Finding, FindingSeverity, SkillScannerResult
 from plugins_builtin.skill_scanner.engines.static_pattern import StaticPatternEngine
 from plugins_builtin.skill_scanner.engines.skill_structural import SkillStructuralEngine
-from plugins_builtin.skill_scanner.engines.capability_risk import CapabilityRiskEngine
-from plugins_builtin.skill_scanner.engines.llm_semantic import LLMSemanticEngine
+from plugins_builtin.skill_scanner.engines.capability_risk import CapabilityRiskScorer
+from plugins_builtin.skill_scanner.engines.llm_semantic import LlmSemanticAnalyzer
 from utils.logger import setup_logger
 
 logger = setup_logger()
@@ -30,8 +30,8 @@ class SkillScannerService:
     def __init__(self):
         self.static_engine = StaticPatternEngine()
         self.structural_engine = SkillStructuralEngine()
-        self.capability_engine = CapabilityRiskEngine()
-        self.llm_engine = LLMSemanticEngine()
+        self.capability_engine = CapabilityRiskScorer()
+        self.llm_engine = LlmSemanticAnalyzer()
 
     async def scan_tools(
         self,

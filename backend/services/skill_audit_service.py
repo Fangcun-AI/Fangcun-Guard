@@ -11,7 +11,7 @@ import uuid
 from typing import Optional
 from config import settings
 from services.model_service import model_service
-from services.general_llm_service import general_llm_service, GeneralLLMServiceError
+from services.general_llm_service import general_llm_service, LlmGatewayError
 from models.requests import SkillAuditRequest
 from models.responses import SkillAuditResponse
 from utils.logger import setup_logger
@@ -57,7 +57,7 @@ REASON: <one paragraph explaining your judgment>
 Where: 0=normal operation, 1=low risk, 2=medium risk, 3=high risk"""
 
 
-def _build_operations_text(request: SkillAuditRequest) -> str:
+def _compose_operations_text(request: SkillAuditRequest) -> str:
     """Build operation history text from request."""
     lines = []
     for op in request.operations:
@@ -66,7 +66,7 @@ def _build_operations_text(request: SkillAuditRequest) -> str:
     return "\n".join(lines)
 
 
-def _parse_llm_response(response: str) -> tuple[int, str]:
+def _decode_llm_response(response: str) -> tuple[int, str]:
     """Parse LLM response to extract risk level and reason.
 
     Returns:
@@ -107,7 +107,7 @@ async def audit_skill_operation(request: SkillAuditRequest) -> SkillAuditRespons
         SkillAuditResponse with risk level and analysis
     """
     request_id = f"skill-audit-{uuid.uuid4().hex[:16]}"
-    operations_text = _build_operations_text(request)
+    operations_text = _compose_operations_text(request)
 
     # === Layer 1: Qwen3Guard classification ===
     classification = "Safety: Safe\nCategories: None"
@@ -144,8 +144,8 @@ async def audit_skill_operation(request: SkillAuditRequest) -> SkillAuditRespons
             temperature=0.0
         )
         logger.info(f"[{request_id}] LLM review response: {llm_response[:200]}...")
-        risk_level, reason = _parse_llm_response(llm_response)
-    except GeneralLLMServiceError as e:
+        risk_level, reason = _decode_llm_response(llm_response)
+    except LlmGatewayError as e:
         logger.error(f"[{request_id}] LLM review failed: {e}")
         # Fallback: use classification result only
         if "unsafe" in classification.lower():

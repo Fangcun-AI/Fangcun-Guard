@@ -86,7 +86,7 @@ DANGEROUS_COMBINATIONS: List[Tuple[Set[str], Set[str], str, str, str]] = [
 ]
 
 
-def _classify_tool_capabilities(
+def _label_tool_capabilities(
     tool_name: str, description: str, extra_keywords: List[str] = None,
 ) -> Set[str]:
     """Classify a single tool's capabilities based on name and description."""
@@ -109,7 +109,7 @@ def _classify_tool_capabilities(
     return capabilities
 
 
-class CapabilityRiskEngine(ScanEngine):
+class CapabilityRiskScorer(ScanEngine):
     """Classifies tool capabilities and detects dangerous cross-tool combinations"""
 
     @property
@@ -128,7 +128,7 @@ class CapabilityRiskEngine(ScanEngine):
             tool_name = func.get('name', 'unknown')
             description = func.get('description', '')
 
-            caps = _classify_tool_capabilities(tool_name, description, extra_keywords)
+            caps = _label_tool_capabilities(tool_name, description, extra_keywords)
             tool_capabilities[tool_name] = caps
 
             # Single-tool risk assessment

@@ -68,7 +68,7 @@ class ToolCallFrequencyTracker:
             del self._calls[k]
 
 
-class AgentSafetyService:
+class AgentSafetyEngine:
     """Agent safety detection service - tool call monitoring, argument inspection, reasoning safety"""
 
     # Built-in suspicious argument patterns (11 original + 8 new)
@@ -311,7 +311,7 @@ class AgentSafetyService:
         import asyncio
         from plugins_builtin.skill_scanner.engines.static_pattern import StaticPatternEngine
         from plugins_builtin.skill_scanner.engines.structural import StructuralValidationEngine
-        from plugins_builtin.skill_scanner.engines.capability_risk import CapabilityRiskEngine
+        from plugins_builtin.skill_scanner.engines.capability_risk import CapabilityRiskScorer
 
         # Create a minimal policy-like object for the engines
         class _EnginePolicy:
@@ -323,7 +323,7 @@ class AgentSafetyService:
         # Run all three engines in parallel
         static_engine = StaticPatternEngine()
         structural_engine = StructuralValidationEngine()
-        capability_engine = CapabilityRiskEngine()
+        capability_engine = CapabilityRiskScorer()
 
         results = await asyncio.gather(
             static_engine.scan(tools, engine_policy),
@@ -418,4 +418,4 @@ class AgentSafetyService:
 
 
 # Global instance
-agent_safety_service = AgentSafetyService()
+agent_safety_service = AgentSafetyEngine()

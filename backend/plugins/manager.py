@@ -22,7 +22,7 @@ class PluginManager:
         self._initialized = False
         self._discovered = False
 
-    def discover_and_register(
+    def discover_plugins(
         self,
         builtin_dir: Optional[Path] = None,
         custom_dir: Optional[Path] = None,
@@ -41,27 +41,30 @@ class PluginManager:
         custom_dir = custom_dir or DEFAULT_CUSTOM_DIR
 
         search_dirs = [builtin_dir, custom_dir]
-        discovered = PluginLoader.discover_plugins(search_dirs)
+        discovered_plugins = PluginLoader.discover_plugins(search_dirs)
 
-        if not discovered:
+        if not discovered_plugins:
             logger.info("No plugins discovered")
             self._discovered = True
             return 0
 
-        logger.info(f"Discovered {len(discovered)} plugin(s): {', '.join(n for n, _ in discovered)}")
+        logger.info(
+            f"Discovered {len(discovered_plugins)} plugin(s): "
+            f"{', '.join(plugin_name for plugin_name, _ in discovered_plugins)}"
+        )
 
-        count = 0
-        for name, plugin in discovered:
+        registered_count = 0
+        for plugin_name, plugin_impl in discovered_plugins:
             try:
-                plugin_registry.register(name, plugin)
-                count += 1
+                plugin_registry.register(plugin_name, plugin_impl)
+                registered_count += 1
             except Exception as e:
-                logger.error(f"Failed to register plugin '{name}': {e}")
+                logger.error(f"Failed to register plugin '{plugin_name}': {e}")
 
         self._discovered = True
-        return count
+        return registered_count
 
-    async def initialize_all(self, app_context: Optional[Dict[str, Any]] = None) -> None:
+    async def warm_up_plugins(self, app_context: Optional[Dict[str, Any]] = None) -> None:
         """
         Async initialization of all registered plugins.
         Call this inside lifespan or startup event.
@@ -69,18 +72,18 @@ class PluginManager:
         if self._initialized:
             return
 
-        app_context = app_context or {}
-        for name, plugin in list(plugin_registry.get_all().items()):
+        context = app_context or {}
+        for plugin_name, plugin_impl in list(plugin_registry.get_all().items()):
             try:
-                await plugin.initialize(app_context)
+                await plugin_impl.initialize(context)
             except Exception as e:
-                logger.error(f"Failed to initialize plugin '{name}': {e}")
-                plugin_registry.unregister(name)
+                logger.error(f"Failed to initialize plugin '{plugin_name}': {e}")
+                plugin_registry.unregister(plugin_name)
 
         self._initialized = True
         logger.info(f"Plugin system initialized: {plugin_registry.plugin_count} plugin(s) active")
 
-    async def load_and_initialize(
+    async def bootstrap_plugins(
         self,
         app=None,
         builtin_dir: Optional[Path] = None,
@@ -105,36 +108,39 @@ class PluginManager:
 
         builtin_dir = builtin_dir or DEFAULT_BUILTIN_DIR
         custom_dir = custom_dir or DEFAULT_CUSTOM_DIR
-        app_context = app_context or {}
+        context = app_context or {}
 
         # Discover plugins
         search_dirs = [builtin_dir, custom_dir]
-        discovered = PluginLoader.discover_plugins(search_dirs)
+        discovered_plugins = PluginLoader.discover_plugins(search_dirs)
 
-        if not discovered:
+        if not discovered_plugins:
             logger.info("No plugins discovered")
             self._initialized = True
             return 0
 
-        logger.info(f"Discovered {len(discovered)} plugin(s): {', '.join(n for n, _ in discovered)}")
+        logger.info(
+            f"Discovered {len(discovered_plugins)} plugin(s): "
+            f"{', '.join(plugin_name for plugin_name, _ in discovered_plugins)}"
+        )
 
         # Register and initialize
         loaded_count = 0
-        for name, plugin in discovered:
+        for plugin_name, plugin_impl in discovered_plugins:
             try:
-                plugin_registry.register(name, plugin)
-                await plugin.initialize(app_context)
+                plugin_registry.register(plugin_name, plugin_impl)
+                await plugin_impl.initialize(context)
 
                 # Register routes if app is provided
                 if app is not None:
-                    for router in plugin.get_routers():
-                        app.include_router(router)
-                        logger.info(f"Registered routes for plugin: {name}")
+                    for plugin_router in plugin_impl.get_routers():
+                        app.include_router(plugin_router)
+                        logger.info(f"Registered routes for plugin: {plugin_name}")
 
                 loaded_count += 1
             except Exception as e:
-                logger.error(f"Failed to initialize plugin '{name}': {e}")
-                plugin_registry.unregister(name)
+                logger.error(f"Failed to initialize plugin '{plugin_name}': {e}")
+                plugin_registry.unregister(plugin_name)
 
         self._initialized = True
         logger.info(f"Plugin system initialized: {loaded_count} plugin(s) active")
@@ -142,17 +148,17 @@ class PluginManager:
 
     async def shutdown_all(self) -> None:
         """Shutdown all plugins gracefully"""
-        for name, plugin in plugin_registry.get_all().items():
+        for plugin_name, plugin_impl in plugin_registry.get_all().items():
             try:
-                await plugin.shutdown()
-                logger.info(f"Plugin '{name}' shut down")
+                await plugin_impl.shutdown()
+                logger.info(f"Plugin '{plugin_name}' shut down")
             except Exception as e:
-                logger.error(f"Plugin '{name}' shutdown error: {e}")
+                logger.error(f"Plugin '{plugin_name}' shutdown error: {e}")
 
         self._initialized = False
         logger.info("Plugin system shut down")
 
-    def run_plugin_migrations(self) -> None:
+    def apply_plugin_migrations(self) -> None:
         """Run database migrations for all registered plugins"""
         from plugins.migration_runner import run_plugin_migrations as _run
         _run(plugin_registry.get_all())

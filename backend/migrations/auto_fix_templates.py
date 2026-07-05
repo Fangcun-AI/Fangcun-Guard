@@ -4,16 +4,16 @@ Auto-fix script for S8 and S10 templates without user interaction
 自动化修复 S8 和 S10 模板脚本
 """
 
-import subprocess
-import sys
+import subprocess  # fcg-rewrite
+import sys  # fcg-rewrite
 
-def run_auto_fix():
+def run_auto_fix():  # fcg-rewrite
     """Execute the template fix automatically"""
 
-    print("=== 开始自动修复模板 ===")
+    print("=== 开始自动修复模板 ===")  # fcg-rewrite
 
-    fix_cmd = [
-        '/home/ecs-user/miniconda3/envs/guardrails/bin/python',
+    fix_cmd = [  # fcg-rewrite
+        '/home/ecs-user/miniconda3/envs/guardrails/bin/python',  # fcg-rewrite
         '-c',
         '''
 import sys
@@ -95,12 +95,12 @@ finally:
         '''
     ]
 
-    result = subprocess.run(fix_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print("错误:", result.stderr)
+    result = subprocess.run(fix_cmd, capture_output=True, text=True)  # fcg-rewrite
+    print(result.stdout)  # fcg-rewrite
+    if result.stderr:  # fcg-rewrite
+        print("错误:", result.stderr)  # fcg-rewrite
 
-    print("\n✅ 模板修复完成! 现在需要重启检测服务以使更改生效。")
+    print("\n✅ 模板修复完成! 现在需要重启检测服务以使更改生效。")  # fcg-rewrite
 
-if __name__ == "__main__":
-    run_auto_fix()
+if __name__ == "__main__":  # fcg-rewrite
+    run_auto_fix()  # fcg-rewrite

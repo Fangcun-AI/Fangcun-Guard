@@ -50,7 +50,7 @@ LLM_ANALYSIS_SYSTEM_PROMPT = (
 )
 
 
-def _get_llm_client():
+def _acquire_llm_client():
     """Get OpenAI-compatible client using configured model API.
     Uses SKILL_SCANNER_* env vars first, falls back to GUARDRAILS_MODEL_* vars.
     """
@@ -61,15 +61,15 @@ def _get_llm_client():
     return AsyncOpenAI(base_url=api_url, api_key=api_key)
 
 
-def _get_model_name():
+def _resolve_model_name():
     return os.environ.get("SKILL_SCANNER_MODEL_NAME") or os.environ.get("GUARDRAILS_MODEL_NAME", "deepseek-v3")
 
 
-async def _call_llm(messages: List[Dict[str, str]], timeout: float = 60.0) -> str:
+async def _invoke_llm(messages: List[Dict[str, str]], timeout: float = 60.0) -> str:
     """Call LLM with timeout. Returns response text or empty string on failure."""
     try:
-        client = _get_llm_client()
-        model_name = _get_model_name()
+        client = _acquire_llm_client()
+        model_name = _resolve_model_name()
         logger.info(f"LLM call: model={model_name}")
         response = await asyncio.wait_for(
             client.chat.completions.create(
@@ -94,7 +94,7 @@ async def _call_llm(messages: List[Dict[str, str]], timeout: float = 60.0) -> st
         return ""
 
 
-def _format_tools_for_llm(tools: List[Dict[str, Any]], max_chars: int = 6000) -> str:
+def _render_tools_for_llm(tools: List[Dict[str, Any]], max_chars: int = 6000) -> str:
     """Format tool definitions for LLM prompt, with special handling for SKILL.md"""
     parts = []
     for i, tool in enumerate(tools):
@@ -120,12 +120,12 @@ def _format_tools_for_llm(tools: List[Dict[str, Any]], max_chars: int = 6000) ->
     return text
 
 
-def _batch_tools(tools: List[Dict[str, Any]], batch_size: int = 20) -> List[List[Dict[str, Any]]]:
+def _collect_tool_batches(tools: List[Dict[str, Any]], batch_size: int = 20) -> List[List[Dict[str, Any]]]:
     """Split tools into batches for LLM processing."""
     return [tools[i:i + batch_size] for i in range(0, len(tools), batch_size)]
 
 
-def _format_phase1_findings(findings: List[Finding], max_items: int = 20) -> str:
+def _render_phase1_findings(findings: List[Finding], max_items: int = 20) -> str:
     """Format Phase 1 findings as context for LLM"""
     if not findings:
         return "自动化扫描器未发现问题。"
@@ -139,7 +139,7 @@ def _format_phase1_findings(findings: List[Finding], max_items: int = 20) -> str
     return '\n'.join(lines)
 
 
-class LLMSemanticEngine(ScanEngine):
+class LlmSemanticAnalyzer(ScanEngine):
     """基于 LLM 的工具定义深度语义分析"""
 
     @property
@@ -160,13 +160,13 @@ class LLMSemanticEngine(ScanEngine):
         all_findings = []
         all_fp_indices = []
 
-        batches = _batch_tools(tools, batch_size=20)
+        batches = _collect_tool_batches(tools, batch_size=20)
         if len(batches) > 1:
             logger.info(f"LLM semantic: processing {len(tools)} tools in {len(batches)} batches")
 
         for batch_idx, batch in enumerate(batches):
-            tools_text = _format_tools_for_llm(batch)
-            prior_text = _format_phase1_findings(phase1_findings or [])
+            tools_text = _render_tools_for_llm(batch)
+            prior_text = _render_phase1_findings(phase1_findings or [])
 
             messages = [
                 {"role": "system", "content": LLM_ANALYSIS_SYSTEM_PROMPT},
@@ -177,7 +177,7 @@ class LLMSemanticEngine(ScanEngine):
                 )},
             ]
 
-            response = await _call_llm(messages, timeout=30.0)
+            response = await _invoke_llm(messages, timeout=30.0)
             if not response:
                 continue
 
@@ -294,7 +294,7 @@ async def enrich_findings_with_llm(findings: List[Dict[str, Any]], tools: List[D
         )},
     ]
 
-    response = await _call_llm(messages, timeout=30.0)
+    response = await _invoke_llm(messages, timeout=30.0)
     if not response:
         return findings
 
@@ -401,8 +401,8 @@ async def enrich_findings_with_llm_streaming(findings: List[Dict[str, Any]], too
     # Stream LLM response and parse ENRICH lines as they appear
     enriched_count = 0
     try:
-        client = _get_llm_client()
-        model_name = _get_model_name()
+        client = _acquire_llm_client()
+        model_name = _resolve_model_name()
         logger.info(f"LLM streaming: model={model_name}, findings={len(findings)}")
         stream = await asyncio.wait_for(
             client.chat.completions.create(

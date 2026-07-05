@@ -2,16 +2,16 @@
 """
 Simple script to fix S8 and S10 templates using the production environment
 """
-import subprocess
-import sys
+import subprocess  # fcg-rewrite
+import sys  # fcg-rewrite
 
-def run_fix():
+def run_fix():  # fcg-rewrite
     """Execute the template fix using the production Python environment"""
 
     # First, check current templates
-    print("=== Check current template content ===")
-    check_cmd = [
-        '/home/ecs-user/miniconda3/envs/guardrails/bin/python',
+    print("=== Check current template content ===")  # fcg-rewrite
+    check_cmd = [  # fcg-rewrite
+        '/home/ecs-user/miniconda3/envs/guardrails/bin/python',  # fcg-rewrite
         '-c',
         '''
 import sys
@@ -38,21 +38,21 @@ finally:
         '''
     ]
 
-    result = subprocess.run(check_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print("Error:", result.stderr)
+    result = subprocess.run(check_cmd, capture_output=True, text=True)  # fcg-rewrite
+    print(result.stdout)  # fcg-rewrite
+    if result.stderr:  # fcg-rewrite
+        print("Error:", result.stderr)  # fcg-rewrite
 
     # Ask user if they want to proceed with fix
-    response = input("\nDo you want to continue fixing templates? (y/N): ")
-    if response.lower() != 'y':
-        print("Operation cancelled")
+    response = input("\nDo you want to continue fixing templates? (y/N): ")  # fcg-rewrite
+    if response.lower() != 'y':  # fcg-rewrite
+        print("Operation cancelled")  # fcg-rewrite
         return
 
     # Fix templates
-    print("\n=== Start fixing templates ===")
-    fix_cmd = [
-        '/home/ecs-user/miniconda3/envs/guardrails/bin/python',
+    print("\n=== Start fixing templates ===")  # fcg-rewrite
+    fix_cmd = [  # fcg-rewrite
+        '/home/ecs-user/miniconda3/envs/guardrails/bin/python',  # fcg-rewrite
         '-c',
         '''
 import sys
@@ -109,13 +109,13 @@ finally:
         '''
     ]
 
-    result = subprocess.run(fix_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print("错误:", result.stderr)
+    result = subprocess.run(fix_cmd, capture_output=True, text=True)  # fcg-rewrite
+    print(result.stdout)  # fcg-rewrite
+    if result.stderr:  # fcg-rewrite
+        print("错误:", result.stderr)  # fcg-rewrite
 
-    print("\nFix completed! Now you need to restart the service to make the changes take effect.")
-    print("Run: sudo systemctl restart xiangxin_guardrails_detection.service")
+    print("\nFix completed! Now you need to restart the service to make the changes take effect.")  # fcg-rewrite
+    print("Run: sudo systemctl restart xiangxin_guardrails_detection.service")  # fcg-rewrite
 
-if __name__ == "__main__":
-    run_fix()
+if __name__ == "__main__":  # fcg-rewrite
+    run_fix()  # fcg-rewrite
