@@ -9,7 +9,7 @@ require text understanding and generation, such as:
 - Appeal review
 - Anonymization code generation
 
-This is separate from ModelService which connects to Qwen3Guard (safety classifier).
+This is separate from UpstreamModelClient which connects to Qwen3Guard (safety classifier).
 """
 import asyncio
 import httpx
@@ -22,12 +22,12 @@ from utils.logger import setup_logger
 logger = setup_logger()
 
 
-class GeneralLLMServiceError(Exception):
+class LlmGatewayError(Exception):
     """Raised when the general LLM service is unavailable or returns an error."""
     pass
 
 
-class CircuitBreaker:
+class FailFastBreaker:
     """Simple circuit breaker for the general LLM service."""
 
     def __init__(self, failure_threshold: int = 5, cooldown_seconds: float = 30.0):
@@ -67,14 +67,14 @@ class CircuitBreaker:
         return self._state == "open" and (time.time() - self._last_failure_time < self._cooldown)
 
 
-class GeneralLLMService:
+class LlmGateway:
     """General-purpose LLM service for text generation tasks.
 
     Connects to a general-purpose model (e.g., Qwen3-8B) via OpenAI-compatible API.
     """
 
     def __init__(self):
-        self._circuit_breaker = CircuitBreaker(failure_threshold=5, cooldown_seconds=30.0)
+        self._circuit_breaker = FailFastBreaker(failure_threshold=5, cooldown_seconds=30.0)
 
         timeout = httpx.Timeout(60.0, connect=5.0)
         limits = httpx.Limits(max_keepalive_connections=50, max_connections=100)
@@ -92,7 +92,7 @@ class GeneralLLMService:
 
     def _check_circuit_breaker(self):
         if not self._circuit_breaker.allow_request():
-            raise GeneralLLMServiceError(
+            raise LlmGatewayError(
                 "Circuit breaker OPEN: general LLM service has failed repeatedly. "
                 "Requests are being rejected to prevent cascade failure."
             )
@@ -108,7 +108,7 @@ class GeneralLLMService:
             The model's response text.
 
         Raises:
-            GeneralLLMServiceError: If the service is unavailable.
+            LlmGatewayError: If the service is unavailable.
         """
         self._check_circuit_breaker()
         try:
@@ -118,7 +118,7 @@ class GeneralLLMService:
         except Exception as e:
             self._circuit_breaker.record_failure()
             logger.error(f"General LLM service error: {e}")
-            raise GeneralLLMServiceError(f"General LLM service unavailable: {e}") from e
+            raise LlmGatewayError(f"General LLM service unavailable: {e}") from e
 
     async def _call_api(self, messages: List[dict], temperature: float = 0.0) -> str:
         """Call the general LLM API."""
@@ -152,4 +152,4 @@ class GeneralLLMService:
 
 
 # Global instance
-general_llm_service = GeneralLLMService()
+general_llm_service = LlmGateway()

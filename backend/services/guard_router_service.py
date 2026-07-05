@@ -74,12 +74,12 @@ _LATIN_RANGES = (
 )
 
 
-def _is_cjk(char: str) -> bool:
+def _looks_cjk(char: str) -> bool:
     cp = ord(char)
     return any(start <= cp <= end for start, end in _CJK_RANGES)
 
 
-def _is_latin(char: str) -> bool:
+def _looks_latin(char: str) -> bool:
     cp = ord(char)
     return any(start <= cp <= end for start, end in _LATIN_RANGES)
 
@@ -105,9 +105,9 @@ def detect_language(text: str) -> tuple:
         if char.isspace():
             continue
         total += 1
-        if _is_cjk(char):
+        if _looks_cjk(char):
             cjk_count += 1
-        elif _is_latin(char):
+        elif _looks_latin(char):
             latin_count += 1
 
     if total == 0:
@@ -132,7 +132,7 @@ def detect_language(text: str) -> tuple:
 # ML Classifier (bge-m3 embedding + MLP, pure NumPy inference)
 # ---------------------------------------------------------------------------
 
-class MLClassifier:
+class MlLabeler:
     """Lightweight MLP classifier using pre-computed weights.
 
     Loads classifier_weights.json (exported by train_classifier.py),
@@ -372,20 +372,20 @@ class MLClassifier:
 # ---------------------------------------------------------------------------
 
 # Global ML classifier singleton (loaded once)
-_ml_classifier: Optional[MLClassifier] = None
+_ml_classifier: Optional[MlLabeler] = None
 _ml_classifier_initialized = False
 
 
-def _get_ml_classifier() -> Optional[MLClassifier]:
+def _acquire_ml_labeler() -> Optional[MlLabeler]:
     """Get or create the global ML classifier singleton."""
     global _ml_classifier, _ml_classifier_initialized
     if not _ml_classifier_initialized:
         _ml_classifier_initialized = True
-        _ml_classifier = MLClassifier()
+        _ml_classifier = MlLabeler()
     return _ml_classifier if _ml_classifier and _ml_classifier.is_available else None
 
 
-class GuardRouterService:
+class GuardSelector:
     """Routes detection requests to the most appropriate guard model.
 
     Two-layer routing:
@@ -438,7 +438,7 @@ class GuardRouterService:
 
     def _try_ml_routing(self, ctx: RoutingContext) -> Optional[RoutingDecision]:
         """Attempt ML-based routing using bge-m3 + MLP classifier."""
-        classifier = _get_ml_classifier()
+        classifier = _acquire_ml_labeler()
         if not classifier:
             return None
 
@@ -489,7 +489,7 @@ class GuardRouterService:
 
         # Check has_code condition (detect code blocks in content)
         if cond.has_code is not None:
-            content_has_code = _detect_code_content(ctx.content)
+            content_has_code = _sniff_code_content(ctx.content)
             if content_has_code != cond.has_code:
                 return False
 
@@ -507,7 +507,7 @@ class GuardRouterService:
         return True
 
 
-def _detect_code_content(text: str) -> bool:
+def _sniff_code_content(text: str) -> bool:
     """Fast heuristic to detect if content contains code.
     Checks for markdown code blocks, common code patterns."""
     if "```" in text:

@@ -1,209 +1,148 @@
-import random
-from typing import List
-from models.requests import Message
-from config import settings
+"""Conversation sampling for bounded-cost guardrail inspection."""
 
-class MessageTruncator:
-    """Message truncator tool, used to control the maximum context length of the detection interface"""
-    
+from __future__ import annotations
+
+import random
+from typing import Any, List, Sequence
+
+from config import settings
+from models.requests import Message
+
+
+class MessageTrimmer:
+    """Keep the newest valid conversation tail within the detection budget."""
+
     @staticmethod
-    def calculate_total_content_length(messages: List[Message]) -> int:
-        """Calculate the total length of all message contents"""
-        return sum(len(msg.content) for msg in messages)
-    
+    def calculate_total_content_length(messages: Sequence[Message]) -> int:
+        return sum(MessageTrimmer._content_length(message.content) for message in messages)
+
     @staticmethod
     def get_random_window(content: str, max_length: int) -> str:
-        """Randomly select a continuous window from the content"""
+        if max_length <= 0:
+            return ""
         if len(content) <= max_length:
             return content
-        
-        # Randomly select starting position
-        start_pos = random.randint(0, len(content) - max_length)
-        return content[start_pos:start_pos + max_length]
-    
-    @staticmethod
-    def truncate_messages(messages: List[Message]) -> List[Message]:
-        """
-        Truncate messages based on the maximum context length configured
-        
-        策略：
-        1. If the last round is user or only one round, prioritize keeping the last user message
-        2. If the last round is assistant, ensure it starts with user
-        3. Use random window to resist long text attacks
-        4. Consider user-assistant pairs
-        """
-        # Ensure messages is not empty
-        if not messages:
-            return messages
-        
-        # Ensure the first message is user role (before length check)
-        if messages[0].role != 'user':
-            # If the first message is not user, find the first user message
-            first_user_index = -1
-            for i, msg in enumerate(messages):
-                if msg.role == 'user':
-                    first_user_index = i
-                    break
-            
-            if first_user_index == -1:
-                # No user message found, return empty list
-                return []
-            
-            # Rebuild messages list from the first user message
-            messages = messages[first_user_index:]
-        
-        max_length = settings.max_detection_context_length
-        total_length = MessageTruncator.calculate_total_content_length(messages)
-        
-        if total_length <= max_length:
-            return messages
-        
-        last_message = messages[-1]
-        
-        if last_message.role == 'user':
-            return MessageTruncator._truncate_ending_with_user(messages, max_length)
-        elif last_message.role == 'assistant':
-            return MessageTruncator._truncate_ending_with_assistant(messages, max_length)
-        else:
-            # system message and other cases, treated as user
-            return MessageTruncator._truncate_ending_with_user(messages, max_length)
-    
-    @staticmethod
-    def _truncate_ending_with_user(messages: List[Message], max_length: int) -> List[Message]:
-        """Handle the case where the last round is user"""
-        last_user = messages[-1]
-        
-        # If the last user content exceeds the configured value, randomly select a window
-        if len(last_user.content) > max_length:
-            truncated_content = MessageTruncator.get_random_window(last_user.content, max_length)
-            return [Message(role=last_user.role, content=truncated_content)]
-        
-        # If the last user content does not exceed the configured value, try to include more historical dialogs
-        result = [last_user]
-        remaining_length = max_length - len(last_user.content)
-        
-        # Traverse from back to front, process user-assistant pairs
-        i = len(messages) - 2  # Start from the second last
-        
-        while i >= 0:
-            # Find user-assistant pairs
-            if i > 0 and messages[i].role == 'assistant' and messages[i-1].role == 'user':
-                # Find a user-assistant pair
-                user_msg = messages[i-1]
-                assistant_msg = messages[i]
-                pair_length = len(user_msg.content) + len(assistant_msg.content)
-                
-                if pair_length <= remaining_length:
-                    # Can include this pair
-                    result.insert(0, assistant_msg)
-                    result.insert(0, user_msg)
-                    remaining_length -= pair_length
-                    i -= 2
-                else:
-                    # This pair is too long, stop
-                    break
-            elif i == 0 and messages[i].role == 'user':
-                # Only one user message
-                if len(messages[i].content) <= remaining_length:
-                    result.insert(0, messages[i])
-                break
-            else:
-                # Not expected message sequence, skip
-                i -= 1
-        
-        return result
-    
-    @staticmethod
-    def _truncate_ending_with_assistant(messages: List[Message], max_length: int) -> List[Message]:
-        """Handle the case where the last round is assistant"""
-        if len(messages) < 2:
-            # If there are not enough messages to form user-assistant pairs, return empty
+        start = random.randint(0, len(content) - max_length)
+        return content[start : start + max_length]
+
+    @classmethod
+    def truncate_messages(cls, messages: List[Message]) -> List[Message]:
+        conversation = cls._drop_leading_non_user_messages(messages)
+        if not conversation:
             return []
-        
-        last_assistant = messages[-1]
-        
-        # Find the last user message
-        last_user_index = -1
-        for i in range(len(messages) - 2, -1, -1):
-            if messages[i].role == 'user':
-                last_user_index = i
-                break
-        
-        if last_user_index == -1:
-            # No user message found, cannot form a valid sequence
+
+        budget = settings.max_detection_context_length
+        if cls.calculate_total_content_length(conversation) <= budget:
+            return conversation
+
+        if conversation[-1].role == "assistant":
+            return cls._fit_assistant_tail(conversation, budget)
+        return cls._fit_user_tail(conversation, budget)
+
+    @classmethod
+    def _fit_user_tail(cls, messages: Sequence[Message], budget: int) -> List[Message]:
+        newest = messages[-1]
+        newest_size = cls._content_length(newest.content)
+        if newest_size > budget:
+            return [cls._trimmed_copy(newest, budget)]
+
+        return cls._prepend_complete_pairs(
+            messages[:-1],
+            [newest],
+            remaining_budget=budget - newest_size,
+        )
+
+    @classmethod
+    def _fit_assistant_tail(cls, messages: Sequence[Message], budget: int) -> List[Message]:
+        assistant = messages[-1]
+        user_index = next(
+            (index for index in range(len(messages) - 2, -1, -1) if messages[index].role == "user"),
+            None,
+        )
+        if user_index is None:
             return []
-        
-        last_user = messages[last_user_index]
-        
-        # If the assistant content itself exceeds the configured value
-        if len(last_assistant.content) > max_length:
-            # Check user content length
-            if len(last_user.content) > max_length // 3:
-                # User content exceeds 1/3, randomly select 1/3 length of user and 2/3 length of assistant
-                user_max_len = max_length // 3
-                assistant_max_len = max_length - user_max_len
-                
-                user_content = MessageTruncator.get_random_window(last_user.content, user_max_len)
-                assistant_content = MessageTruncator.get_random_window(last_assistant.content, assistant_max_len)
-                
-                return [
-                    Message(role='user', content=user_content),
-                    Message(role='assistant', content=assistant_content)
-                ]
-            else:
-                # User content does not exceed 1/3, keep all user, truncate assistant
-                assistant_max_len = max_length - len(last_user.content)
-                assistant_content = MessageTruncator.get_random_window(last_assistant.content, assistant_max_len)
-                
-                return [
-                    Message(role='user', content=last_user.content),
-                    Message(role='assistant', content=assistant_content)
-                ]
-        
-        # Assistant content does not exceed the configured value, keep all assistant
-        last_pair_length = len(last_user.content) + len(last_assistant.content)
-        
-        if last_pair_length > max_length:
-            # The last pair exceeds the limit, need to truncate user
-            user_max_len = max_length - len(last_assistant.content)
-            user_content = MessageTruncator.get_random_window(last_user.content, user_max_len)
-            
+
+        user = messages[user_index]
+        assistant_size = cls._content_length(assistant.content)
+        user_size = cls._content_length(user.content)
+        if assistant_size >= budget:
+            user_budget = min(user_size, budget // 3)
+            assistant_budget = budget - user_budget
             return [
-                Message(role='user', content=user_content),
-                Message(role='assistant', content=last_assistant.content)
+                cls._trimmed_copy(user, user_budget),
+                cls._trimmed_copy(assistant, assistant_budget),
             ]
-        
-        # The last pair does not exceed the limit, try to include more historical dialogs
-        result = [last_user, last_assistant]
-        remaining_length = max_length - last_pair_length
-        
-        # Process historical dialogs from last_user before, pair by pair
-        i = last_user_index - 1
-        
-        while i >= 0:
-            # Find user-assistant pairs
-            if i > 0 and messages[i].role == 'assistant' and messages[i-1].role == 'user':
-                # Find a user-assistant pair
-                user_msg = messages[i-1]
-                assistant_msg = messages[i]
-                pair_length = len(user_msg.content) + len(assistant_msg.content)
-                
-                if pair_length <= remaining_length:
-                    # Can include this pair
-                    result.insert(0, assistant_msg)
-                    result.insert(0, user_msg)
-                    remaining_length -= pair_length
-                    i -= 2
-                else:
-                    # This pair is too long, stop
+
+        pair_size = user_size + assistant_size
+        if pair_size > budget:
+            return [cls._trimmed_copy(user, budget - assistant_size), assistant]
+
+        return cls._prepend_complete_pairs(
+            messages[:user_index],
+            [user, assistant],
+            remaining_budget=budget - pair_size,
+        )
+
+    @classmethod
+    def _prepend_complete_pairs(
+        cls,
+        history: Sequence[Message],
+        tail: List[Message],
+        *,
+        remaining_budget: int,
+    ) -> List[Message]:
+        result = list(tail)
+        index = len(history) - 1
+        while index >= 0:
+            if (
+                index > 0
+                and history[index].role == "assistant"
+                and history[index - 1].role == "user"
+            ):
+                pair = [history[index - 1], history[index]]
+                pair_size = cls.calculate_total_content_length(pair)
+                if pair_size > remaining_budget:
                     break
-            elif i == 0 and messages[i].role == 'user':
-                # Only one user message
-                if len(messages[i].content) <= remaining_length:
-                    result.insert(0, messages[i])
-                break
-            else:
-                # Not expected message sequence, skip
-                i -= 1
-        
+                result[0:0] = pair
+                remaining_budget -= pair_size
+                index -= 2
+                continue
+
+            if index == 0 and history[index].role == "user":
+                message_size = cls._content_length(history[index].content)
+                if message_size <= remaining_budget:
+                    result.insert(0, history[index])
+            index -= 1
         return result
+
+    @staticmethod
+    def _drop_leading_non_user_messages(messages: Sequence[Message]) -> List[Message]:
+        first_user_index = next(
+            (index for index, message in enumerate(messages) if message.role == "user"),
+            None,
+        )
+        return list(messages[first_user_index:]) if first_user_index is not None else []
+
+    @staticmethod
+    def _trimmed_copy(message: Message, budget: int) -> Message:
+        if isinstance(message.content, str):
+            content: Any = MessageTrimmer.get_random_window(message.content, budget)
+        elif isinstance(message.content, list):
+            content = message.content[: max(budget, 0)]
+        else:
+            content = message.content
+        return Message(role=message.role, content=content)
+
+    @staticmethod
+    def _content_length(content: Any) -> int:
+        if content is None:
+            return 0
+        if isinstance(content, str):
+            return len(content)
+        if isinstance(content, list):
+            return sum(
+                len(part.text or "")
+                + len(part.image_url.url if getattr(part, "image_url", None) else "")
+                for part in content
+            )
+        return len(str(content))

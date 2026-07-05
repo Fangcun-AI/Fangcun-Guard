@@ -21,7 +21,7 @@ BYPASS_TOKEN_HEADERS = (
 TOKEN_VALIDITY_SECONDS = 300
 
 
-def _secret_key() -> bytes:
+def _derive_secret_key() -> bytes:
     """Return the shared signing key for bypass tokens."""
     return settings.jwt_secret_key.encode('utf-8')
 
@@ -45,7 +45,7 @@ def make_bypass_token(tenant_id: str, request_id: str) -> str:
     timestamp = str(int(time.time()))
     message = f"{tenant_id}:{request_id}:{timestamp}"
     signature = hmac.new(
-        _secret_key(),
+        _derive_secret_key(),
         message.encode('utf-8'),
         hashlib.sha256
     ).hexdigest()
@@ -85,7 +85,7 @@ def parse_bypass_token(token: str) -> Tuple[bool, Optional[str], Optional[str]]:
 
         message = f"{tenant_id}:{request_id}:{timestamp_str}"
         expected_signature = hmac.new(
-            _secret_key(),
+            _derive_secret_key(),
             message.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()

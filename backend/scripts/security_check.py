@@ -4,263 +4,263 @@ Security check and repair script
 Check common security configuration issues and provide repair suggestions
 """
 
-import os
-import sys
-import secrets
-import hashlib
-from pathlib import Path
+import os  # fcg-rewrite
+import sys  # fcg-rewrite
+import secrets  # fcg-rewrite
+import hashlib  # fcg-rewrite
+from pathlib import Path  # fcg-rewrite
 
 # Add parent directory to path
-sys.path.append(str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent.parent))  # fcg-rewrite
 
-from config import settings
+from config import settings  # fcg-rewrite
 
-def generate_secure_jwt_key():
+def generate_secure_jwt_key():  # fcg-rewrite
     """Generate secure JWT key"""
-    return secrets.token_urlsafe(64)
+    return secrets.token_urlsafe(64)  # fcg-rewrite
 
-def generate_secure_password(length=16):
+def generate_secure_password(length=16):  # fcg-rewrite
     """Generate secure random password"""
-    import string
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
+    import string  # fcg-rewrite
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"  # fcg-rewrite
+    return ''.join(secrets.choice(alphabet) for _ in range(length))  # fcg-rewrite
 
-def check_jwt_security():
+def check_jwt_security():  # fcg-rewrite
     """Check JWT configuration security"""
-    issues = []
-    
+    issues = []  # fcg-rewrite
+
     # Check JWT key length and complexity
-    if len(settings.jwt_secret_key) < 32:
-        issues.append({
-            'level': 'HIGH',
-            'category': 'JWT',
-            'issue': 'JWT key length is too short',
-            'description': f'The current JWT key length is {len(settings.jwt_secret_key)} characters, it is recommended to be at least 64 characters',
-            'fix': f'Suggested key: {generate_secure_jwt_key()}'
+    if len(settings.jwt_secret_key) < 32:  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'HIGH',  # fcg-rewrite
+            'category': 'JWT',  # fcg-rewrite
+            'issue': 'JWT key length is too short',  # fcg-rewrite
+            'description': f'The current JWT key length is {len(settings.jwt_secret_key)} characters, it is recommended to be at least 64 characters',  # fcg-rewrite
+            'fix': f'Suggested key: {generate_secure_jwt_key()}'  # fcg-rewrite
         })
-    
+
     # Check if using default key
-    weak_keys = [
-        'fangcunguard-jwt-secret-key-2024',
-        'your-secret-key',
-        'secret',
-        'jwt-secret'
+    weak_keys = [  # fcg-rewrite
+        'fangcunguard-jwt-secret-key-2024',  # fcg-rewrite
+        'your-secret-key',  # fcg-rewrite
+        'secret',  # fcg-rewrite
+        'jwt-secret'  # fcg-rewrite
     ]
-    
-    if settings.jwt_secret_key in weak_keys:
-        issues.append({
-            'level': 'CRITICAL',
-            'category': 'JWT',
-            'issue': 'Using default or weak JWT key',
-            'description': 'The current key is default or known weak key',
-            'fix': f'Please replace with secure key: {generate_secure_jwt_key()}'
-        })
-    
-    return issues
 
-def check_admin_security():
+    if settings.jwt_secret_key in weak_keys:  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'CRITICAL',  # fcg-rewrite
+            'category': 'JWT',  # fcg-rewrite
+            'issue': 'Using default or weak JWT key',  # fcg-rewrite
+            'description': 'The current key is default or known weak key',  # fcg-rewrite
+            'fix': f'Please replace with secure key: {generate_secure_jwt_key()}'  # fcg-rewrite
+        })
+
+    return issues  # fcg-rewrite
+
+def check_admin_security():  # fcg-rewrite
     """Check admin account security"""
-    issues = []
-    
+    issues = []  # fcg-rewrite
+
     # Check default admin password
-    weak_passwords = [
-        'admin',
-        'password',
-        '123456',
-        'fangcunguard@2024',
-        'admin123'
+    weak_passwords = [  # fcg-rewrite
+        'admin',  # fcg-rewrite
+        'password',  # fcg-rewrite
+        '123456',  # fcg-rewrite
+        'fangcunguard@2024',  # fcg-rewrite
+        'admin123'  # fcg-rewrite
     ]
-    
-    if settings.super_admin_password in weak_passwords:
-        issues.append({
-            'level': 'CRITICAL',
-            'category': 'Admin',
-            'issue': 'Using default or weak admin password',
-            'description': 'The current admin password is too simple and can be easily cracked',
-            'fix': f'Suggest replacing with strong password: {generate_secure_password()}'
+
+    if settings.super_admin_password in weak_passwords:  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'CRITICAL',  # fcg-rewrite
+            'category': 'Admin',  # fcg-rewrite
+            'issue': 'Using default or weak admin password',  # fcg-rewrite
+            'description': 'The current admin password is too simple and can be easily cracked',  # fcg-rewrite
+            'fix': f'Suggest replacing with strong password: {generate_secure_password()}'  # fcg-rewrite
         })
-    
+
     # Check admin username
-    if settings.super_admin_username == 'admin':
-        issues.append({
-            'level': 'MEDIUM',
-            'category': 'Admin',
-            'issue': 'Using default admin username',
-            'description': 'Using default username increases the risk of attack',
-            'fix': 'Suggest replacing with custom email address'
+    if settings.super_admin_username == 'admin':  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'MEDIUM',  # fcg-rewrite
+            'category': 'Admin',  # fcg-rewrite
+            'issue': 'Using default admin username',  # fcg-rewrite
+            'description': 'Using default username increases the risk of attack',  # fcg-rewrite
+            'fix': 'Suggest replacing with custom email address'  # fcg-rewrite
         })
-    
-    return issues
 
-def check_database_security():
+    return issues  # fcg-rewrite
+
+def check_database_security():  # fcg-rewrite
     """Check database security"""
-    issues = []
-    
+    issues = []  # fcg-rewrite
+
     # Check database URL if it contains weak password
-    db_url = settings.database_url
-    if 'password' in db_url.lower() or '123456' in db_url:
-        issues.append({
-            'level': 'HIGH',
-            'category': 'Database',
-            'issue': 'Database password may be too simple',
-            'description': 'Database connection string may contain weak password',
-            'fix': 'Use strong password and consider using environment variables'
+    db_url = settings.database_url  # fcg-rewrite
+    if 'password' in db_url.lower() or '123456' in db_url:  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'HIGH',  # fcg-rewrite
+            'category': 'Database',  # fcg-rewrite
+            'issue': 'Database password may be too simple',  # fcg-rewrite
+            'description': 'Database connection string may contain weak password',  # fcg-rewrite
+            'fix': 'Use strong password and consider using environment variables'  # fcg-rewrite
         })
-    
-    return issues
 
-def check_cors_security():
+    return issues  # fcg-rewrite
+
+def check_cors_security():  # fcg-rewrite
     """Check CORS configuration security"""
-    issues = []
-    
-    if settings.cors_origins == "*":
-        issues.append({
-            'level': 'MEDIUM',
-            'category': 'CORS',
-            'issue': 'CORS configuration is too permissive',
-            'description': 'Allowing all origins may introduce security risks',
-            'fix': 'Suggest configuring specific domains, such as: https://yourdomain.com'
-        })
-    
-    return issues
+    issues = []  # fcg-rewrite
 
-def check_debug_mode():
+    if settings.cors_origins == "*":  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'MEDIUM',  # fcg-rewrite
+            'category': 'CORS',  # fcg-rewrite
+            'issue': 'CORS configuration is too permissive',  # fcg-rewrite
+            'description': 'Allowing all origins may introduce security risks',  # fcg-rewrite
+            'fix': 'Suggest configuring specific domains, such as: https://yourdomain.com'  # fcg-rewrite
+        })
+
+    return issues  # fcg-rewrite
+
+def check_debug_mode():  # fcg-rewrite
     """Check debug mode"""
-    issues = []
-    
-    if settings.debug:
-        issues.append({
-            'level': 'MEDIUM',
-            'category': 'Debug',
-            'issue': 'Debug mode is enabled in production environment',
-            'description': 'Debug mode may leak sensitive information',
-            'fix': 'Set DEBUG=false in production environment'
-        })
-    
-    return issues
+    issues = []  # fcg-rewrite
 
-def check_smtp_security():
+    if settings.debug:  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'MEDIUM',  # fcg-rewrite
+            'category': 'Debug',  # fcg-rewrite
+            'issue': 'Debug mode is enabled in production environment',  # fcg-rewrite
+            'description': 'Debug mode may leak sensitive information',  # fcg-rewrite
+            'fix': 'Set DEBUG=false in production environment'  # fcg-rewrite
+        })
+
+    return issues  # fcg-rewrite
+
+def check_smtp_security():  # fcg-rewrite
     """Check SMTP configuration security"""
-    issues = []
-    
-    if settings.smtp_password and settings.smtp_password in ['your-email-password', 'password']:
-        issues.append({
-            'level': 'HIGH',
-            'category': 'SMTP',
-            'issue': 'Using default SMTP password',
-            'description': 'SMTP password is not correctly configured',
-            'fix': 'Configure correct email password'
-        })
-    
-    return issues
+    issues = []  # fcg-rewrite
 
-def check_file_permissions():
+    if settings.smtp_password and settings.smtp_password in ['your-email-password', 'password']:  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'HIGH',  # fcg-rewrite
+            'category': 'SMTP',  # fcg-rewrite
+            'issue': 'Using default SMTP password',  # fcg-rewrite
+            'description': 'SMTP password is not correctly configured',  # fcg-rewrite
+            'fix': 'Configure correct email password'  # fcg-rewrite
+        })
+
+    return issues  # fcg-rewrite
+
+def check_file_permissions():  # fcg-rewrite
     """Check critical file permissions"""
-    issues = []
-    
+    issues = []  # fcg-rewrite
+
     # Check .env file permissions
-    env_file = Path(__file__).parent.parent / '.env'
-    if env_file.exists():
-        stat_info = env_file.stat()
+    env_file = Path(__file__).parent.parent / '.env'  # fcg-rewrite
+    if env_file.exists():  # fcg-rewrite
+        stat_info = env_file.stat()  # fcg-rewrite
         # Check if it is readable by other users
-        if stat_info.st_mode & 0o044:  # Other users or groups can read
-            issues.append({
-                'level': 'HIGH',
-                'category': 'File Permissions',
-                'issue': '.env file permissions are too permissive',
-                'description': '.env file contains sensitive information, it should not be readable by other users',
-                'fix': f'Run: chmod 600 {env_file}'
+        if stat_info.st_mode & 0o044:  # Other users or groups can read  # fcg-rewrite
+            issues.append({  # fcg-rewrite
+                'level': 'HIGH',  # fcg-rewrite
+                'category': 'File Permissions',  # fcg-rewrite
+                'issue': '.env file permissions are too permissive',  # fcg-rewrite
+                'description': '.env file contains sensitive information, it should not be readable by other users',  # fcg-rewrite
+                'fix': f'Run: chmod 600 {env_file}'  # fcg-rewrite
             })
-    
-    return issues
 
-def check_api_key_security():
+    return issues  # fcg-rewrite
+
+def check_api_key_security():  # fcg-rewrite
     """Check API key security"""
-    issues = []
-    
-    if settings.guardrails_model_api_key == 'your-model-api-key':
-        issues.append({
-            'level': 'MEDIUM',
-            'category': 'API Key',
-            'issue': 'Model API key is not configured',
-            'description': 'Using default placeholder may cause service to not work properly',
-            'fix': 'Configure correct model API key'
+    issues = []  # fcg-rewrite
+
+    if settings.guardrails_model_api_key == 'your-model-api-key':  # fcg-rewrite
+        issues.append({  # fcg-rewrite
+            'level': 'MEDIUM',  # fcg-rewrite
+            'category': 'API Key',  # fcg-rewrite
+            'issue': 'Model API key is not configured',  # fcg-rewrite
+            'description': 'Using default placeholder may cause service to not work properly',  # fcg-rewrite
+            'fix': 'Configure correct model API key'  # fcg-rewrite
         })
-    
-    return issues
 
-def generate_security_report():
+    return issues  # fcg-rewrite
+
+def generate_security_report():  # fcg-rewrite
     """Generate security check report"""
-    print("=" * 60)
-    print("FangcunGuard Platform - Security check report")
-    print("=" * 60)
-    
-    all_issues = []
-    
-    # Run all checks
-    checks = [
-        ('JWT security', check_jwt_security),
-        ('Admin account security', check_admin_security),
-        ('Database security', check_database_security),
-        ('CORS configuration', check_cors_security),
-        ('Debug mode', check_debug_mode),
-        ('SMTP configuration', check_smtp_security),
-        ('File permissions', check_file_permissions),
-        ('API key security', check_api_key_security),
-    ]
-    
-    for check_name, check_func in checks:
-        print(f"\n📋 Check: {check_name}")
-        issues = check_func()
-        
-        if not issues:
-            print("✅ No security issues found")
-        else:
-            for issue in issues:
-                all_issues.append(issue)
-                level_emoji = {'CRITICAL': '🔴', 'HIGH': '🟠', 'MEDIUM': '🟡', 'LOW': '🟢'}
-                print(f"{level_emoji.get(issue['level'], '⚪')} {issue['level']}: {issue['issue']}")
-                print(f"   Description: {issue['description']}")
-                print(f"   Fix suggestion: {issue['fix']}")
-                print()
-    
-    # Generate report
-    print("\n" + "=" * 60)
-    print("Security check summary")
-    print("=" * 60)
-    
-    if not all_issues:
-        print("🎉 Congratulations! No security issues found.")
-        return True
-    
-    critical_count = len([i for i in all_issues if i['level'] == 'CRITICAL'])
-    high_count = len([i for i in all_issues if i['level'] == 'HIGH'])
-    medium_count = len([i for i in all_issues if i['level'] == 'MEDIUM'])
-    low_count = len([i for i in all_issues if i['level'] == 'LOW'])
-    
-    print(f"🔴 Critical issues: {critical_count}")
-    print(f"🟠 High risk issues: {high_count}")
-    print(f"🟡 Medium risk issues: {medium_count}")
-    print(f"🟢 Low risk issues: {low_count}")
-    print(f"📊 Total: {len(all_issues)} issues")
-    
-    if critical_count > 0:
-        print("\n⚠️  Warning: Critical security issues found, please fix immediately!")
-        return False
-    elif high_count > 0:
-        print("\n⚠️  Warning: High risk security issues found, please fix as soon as possible.")
-        return False
-    else:
-        print("\n✅ No critical security issues found, but it is recommended to fix medium and low risk issues to improve security.")
-        return True
+    print("=" * 60)  # fcg-rewrite
+    print("FangcunGuard Platform - Security check report")  # fcg-rewrite
+    print("=" * 60)  # fcg-rewrite
 
-def generate_secure_env_template():
+    all_issues = []  # fcg-rewrite
+
+    # Run all checks
+    checks = [  # fcg-rewrite
+        ('JWT security', check_jwt_security),  # fcg-rewrite
+        ('Admin account security', check_admin_security),  # fcg-rewrite
+        ('Database security', check_database_security),  # fcg-rewrite
+        ('CORS configuration', check_cors_security),  # fcg-rewrite
+        ('Debug mode', check_debug_mode),  # fcg-rewrite
+        ('SMTP configuration', check_smtp_security),  # fcg-rewrite
+        ('File permissions', check_file_permissions),  # fcg-rewrite
+        ('API key security', check_api_key_security),  # fcg-rewrite
+    ]
+
+    for check_name, check_func in checks:  # fcg-rewrite
+        print(f"\n📋 Check: {check_name}")  # fcg-rewrite
+        issues = check_func()  # fcg-rewrite
+
+        if not issues:  # fcg-rewrite
+            print("✅ No security issues found")  # fcg-rewrite
+        else:
+            for issue in issues:  # fcg-rewrite
+                all_issues.append(issue)  # fcg-rewrite
+                level_emoji = {'CRITICAL': '🔴', 'HIGH': '🟠', 'MEDIUM': '🟡', 'LOW': '🟢'}  # fcg-rewrite
+                print(f"{level_emoji.get(issue['level'], '⚪')} {issue['level']}: {issue['issue']}")  # fcg-rewrite
+                print(f"   Description: {issue['description']}")  # fcg-rewrite
+                print(f"   Fix suggestion: {issue['fix']}")  # fcg-rewrite
+                print()
+
+    # Generate report
+    print("\n" + "=" * 60)  # fcg-rewrite
+    print("Security check summary")  # fcg-rewrite
+    print("=" * 60)  # fcg-rewrite
+
+    if not all_issues:  # fcg-rewrite
+        print("🎉 Congratulations! No security issues found.")  # fcg-rewrite
+        return True  # fcg-rewrite
+
+    critical_count = len([i for i in all_issues if i['level'] == 'CRITICAL'])  # fcg-rewrite
+    high_count = len([i for i in all_issues if i['level'] == 'HIGH'])  # fcg-rewrite
+    medium_count = len([i for i in all_issues if i['level'] == 'MEDIUM'])  # fcg-rewrite
+    low_count = len([i for i in all_issues if i['level'] == 'LOW'])  # fcg-rewrite
+
+    print(f"🔴 Critical issues: {critical_count}")  # fcg-rewrite
+    print(f"🟠 High risk issues: {high_count}")  # fcg-rewrite
+    print(f"🟡 Medium risk issues: {medium_count}")  # fcg-rewrite
+    print(f"🟢 Low risk issues: {low_count}")  # fcg-rewrite
+    print(f"📊 Total: {len(all_issues)} issues")  # fcg-rewrite
+
+    if critical_count > 0:  # fcg-rewrite
+        print("\n⚠️  Warning: Critical security issues found, please fix immediately!")  # fcg-rewrite
+        return False  # fcg-rewrite
+    elif high_count > 0:  # fcg-rewrite
+        print("\n⚠️  Warning: High risk security issues found, please fix as soon as possible.")  # fcg-rewrite
+        return False  # fcg-rewrite
+    else:
+        print("\n✅ No critical security issues found, but it is recommended to fix medium and low risk issues to improve security.")  # fcg-rewrite
+        return True  # fcg-rewrite
+
+def generate_secure_env_template():  # fcg-rewrite
     """Generate secure .env template"""
-    print("\n" + "=" * 60)
-    print("Generate secure configuration template")
-    print("=" * 60)
-    
-    template = f"""# Application configuration
+    print("\n" + "=" * 60)  # fcg-rewrite
+    print("Generate secure configuration template")  # fcg-rewrite
+    print("=" * 60)  # fcg-rewrite
+
+    template = f"""# Application configuration  # fcg-rewrite
 APP_NAME=FangcunGuard
 APP_VERSION=1.0.0
 DEBUG=false
@@ -307,45 +307,45 @@ SMTP_USE_SSL=false
 UVICORN_WORKERS=4
 MAX_CONCURRENT_REQUESTS=100
 """
-    
-    print("🔐 Secure .env configuration template:")
-    print(template)
-    
+
+    print("🔐 Secure .env configuration template:")  # fcg-rewrite
+    print(template)  # fcg-rewrite
+
     # Save to file
-    template_file = Path(__file__).parent.parent / '.env.secure.template'
-    with open(template_file, 'w') as f:
-        f.write(template)
-    
-    print(f"✅ Template saved to: {template_file}")
-    print("📋 Please update your .env file according to the template")
+    template_file = Path(__file__).parent.parent / '.env.secure.template'  # fcg-rewrite
+    with open(template_file, 'w') as f:  # fcg-rewrite
+        f.write(template)  # fcg-rewrite
 
-def main():
-    print("🛡️  FangcunGuard Platform - Security check tool")
-    print("This tool will check common security configuration issues and provide repair suggestions\n")
-    
+    print(f"✅ Template saved to: {template_file}")  # fcg-rewrite
+    print("📋 Please update your .env file according to the template")  # fcg-rewrite
+
+def main():  # fcg-rewrite
+    print("🛡️  FangcunGuard Platform - Security check tool")  # fcg-rewrite
+    print("This tool will check common security configuration issues and provide repair suggestions\n")  # fcg-rewrite
+
     # Generate security check report
-    is_secure = generate_security_report()
-    
-    # Generate secure configuration template
-    generate_secure_env_template()
-    
-    print("\n" + "=" * 60)
-    print("Security recommendations")
-    print("=" * 60)
-    print("1. 🔐 Update JWT key and admin password regularly")
-    print("2. 🔒 Deploy production environment using HTTPS")
-    print("3. 🌐 Configure firewall to limit unnecessary port access")
-    print("4. 📊 Enable access log monitoring")
-    print("5. 🔄 Backup database regularly")
-    print("6. 📱 Consider enabling two-factor authentication (2FA)")
-    print("7. 🛡️  Run this security check tool regularly")
-    
-    if not is_secure:
-        print("\n❌ Security check failed, please fix the issues and run again.")
-        sys.exit(1)
-    else:
-        print("\n✅ Security check passed!")
-        sys.exit(0)
+    is_secure = generate_security_report()  # fcg-rewrite
 
-if __name__ == "__main__":
+    # Generate secure configuration template
+    generate_secure_env_template()  # fcg-rewrite
+
+    print("\n" + "=" * 60)  # fcg-rewrite
+    print("Security recommendations")  # fcg-rewrite
+    print("=" * 60)  # fcg-rewrite
+    print("1. 🔐 Update JWT key and admin password regularly")  # fcg-rewrite
+    print("2. 🔒 Deploy production environment using HTTPS")  # fcg-rewrite
+    print("3. 🌐 Configure firewall to limit unnecessary port access")  # fcg-rewrite
+    print("4. 📊 Enable access log monitoring")  # fcg-rewrite
+    print("5. 🔄 Backup database regularly")  # fcg-rewrite
+    print("6. 📱 Consider enabling two-factor authentication (2FA)")  # fcg-rewrite
+    print("7. 🛡️  Run this security check tool regularly")  # fcg-rewrite
+
+    if not is_secure:  # fcg-rewrite
+        print("\n❌ Security check failed, please fix the issues and run again.")  # fcg-rewrite
+        sys.exit(1)  # fcg-rewrite
+    else:
+        print("\n✅ Security check passed!")  # fcg-rewrite
+        sys.exit(0)  # fcg-rewrite
+
+if __name__ == "__main__":  # fcg-rewrite
     main()

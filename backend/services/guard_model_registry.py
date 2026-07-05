@@ -24,7 +24,7 @@ logger = setup_logger()
 _ENV_VAR_PATTERN = re.compile(r'\$\{([^}:]+)(?::-([^}]*))?\}')
 
 
-def _resolve_env_vars(value: str) -> str:
+def _substitute_env_vars(value: str) -> str:
     """Replace ${VAR_NAME} or ${VAR_NAME:-default} with environment variable values."""
     def _replacer(match):
         var_name = match.group(1)
@@ -34,7 +34,7 @@ def _resolve_env_vars(value: str) -> str:
 
 
 @dataclass
-class CircuitBreakerConfig:
+class FailFastConfig:
     failure_threshold: int = 5
     cooldown_seconds: float = 30.0
 
@@ -54,7 +54,7 @@ class GuardModelConfig:
     specialties: List[str] = field(default_factory=list)
     max_context_length: int = 8192
     is_default: bool = False
-    circuit_breaker: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
+    circuit_breaker: FailFastConfig = field(default_factory=FailFastConfig)
 
 
 @dataclass
@@ -123,14 +123,14 @@ class GuardModelRegistry:
             models_config = config.get("models", {})
             for model_id, model_data in models_config.items():
                 cb_data = model_data.get("circuit_breaker", {})
-                cb_config = CircuitBreakerConfig(
+                cb_config = FailFastConfig(
                     failure_threshold=cb_data.get("failure_threshold", 5),
                     cooldown_seconds=cb_data.get("cooldown_seconds", 30.0),
                 )
 
-                api_url = _resolve_env_vars(str(model_data.get("api_url", "")))
-                api_key = _resolve_env_vars(str(model_data.get("api_key", "")))
-                model_name = _resolve_env_vars(str(model_data.get("model_name", "")))
+                api_url = _substitute_env_vars(str(model_data.get("api_url", "")))
+                api_key = _substitute_env_vars(str(model_data.get("api_key", "")))
+                model_name = _substitute_env_vars(str(model_data.get("model_name", "")))
 
                 # Skip models with unresolved/empty API URLs
                 if not api_url:
@@ -264,7 +264,7 @@ class GuardModelRegistry:
         return None
 
 
-def _create_registry() -> GuardModelRegistry:
+def _init_registry() -> GuardModelRegistry:
     """Create the global registry instance."""
     from config import settings
     return GuardModelRegistry(config_path=settings.guard_models_config_path)
@@ -278,5 +278,5 @@ def get_guard_model_registry() -> GuardModelRegistry:
     """Get or create the global guard model registry."""
     global _registry_instance
     if _registry_instance is None:
-        _registry_instance = _create_registry()
+        _registry_instance = _init_registry()
     return _registry_instance

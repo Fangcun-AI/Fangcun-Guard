@@ -54,8 +54,8 @@ from plugins.registry import plugin_registry
 from pathlib import Path
 import asyncio
 async def main():
-    await plugin_manager.load_and_initialize(app=None, app_context={'service': 'migration'})
-    plugin_manager.run_plugin_migrations()
+    await plugin_manager.bootstrap_plugins(app=None, app_context={'service': 'migration'})
+    plugin_manager.apply_plugin_migrations()
     print(f'Plugin migrations completed for {plugin_registry.plugin_count} plugin(s)')
 asyncio.run(main())
 " || {
@@ -98,8 +98,8 @@ from plugins.manager import plugin_manager
 from plugins.registry import plugin_registry
 import asyncio
 async def main():
-    await plugin_manager.load_and_initialize(app=None, app_context={'service': 'migration'})
-    plugin_manager.run_plugin_migrations()
+    await plugin_manager.bootstrap_plugins(app=None, app_context={'service': 'migration'})
+    plugin_manager.apply_plugin_migrations()
     print(f'Plugin migrations completed for {plugin_registry.plugin_count} plugin(s)')
 asyncio.run(main())
 " || {

@@ -17,61 +17,46 @@ Flow:
                            ↓               ↓
                       Safe Response   Template Response
 """
-import time
-import asyncio
-from typing import Dict, Optional, List
-from sqlalchemy.orm import Session
-
-from database.models import KnowledgeBase, TenantKnowledgeBaseDisable, ApplicationSettings
-from database.connection import get_db_session
-from services.knowledge_base_service import knowledge_base_service
-from services.proxy_answer_service import proxy_answer_service
-from utils.logger import setup_logger
-from utils.i18n_loader import get_translation
+from typing import Optional, List  # fcg-rewrite
+from services.enhanced_template_cache import EnhancedTemplateCache  # fcg-rewrite
+from services.enhanced_template_kb_matcher import EnhancedTemplateKnowledgeMatcher  # fcg-rewrite
+from services.proxy_answer_service import proxy_answer_service  # fcg-rewrite
+from utils.logger import setup_logger  # fcg-rewrite
 
 # Default templates (same as in config_api.py)
-DEFAULT_TEMPLATES = {
-    "security_risk_template": {
-        "en": "Request blocked by FangcunGuard.\n\nTriggered rule: {scanner_name}\nDetails: {match_details}",
-        "zh": "请求已被 FangcunGuard 拦截。\n\n触发规则：{scanner_name}\n检测详情：{match_details}"
+DEFAULT_TEMPLATES = {  # fcg-rewrite
+    "security_risk_template": {  # fcg-rewrite
+        "en": "Request blocked by FangcunGuard.\n\nTriggered rule: {scanner_name}\nDetails: {match_details}",  # fcg-rewrite
+        "zh": "请求已被 FangcunGuard 拦截。\n\n触发规则：{scanner_name}\n检测详情：{match_details}"  # fcg-rewrite
     },
-    "data_leakage_template": {
-        "en": "Request blocked by FangcunGuard due to possible sensitive data ({entity_type_names}).",
-        "zh": "请求已被 FangcunGuard 拦截，原因：检测到敏感数据（{entity_type_names}）。"
+    "data_leakage_template": {  # fcg-rewrite
+        "en": "Request blocked by FangcunGuard due to possible sensitive data ({entity_type_names}).",  # fcg-rewrite
+        "zh": "请求已被 FangcunGuard 拦截，原因：检测到敏感数据（{entity_type_names}）。"  # fcg-rewrite
     }
 }
 
-logger = setup_logger()
+logger = setup_logger()  # fcg-rewrite
 
 
-class EnhancedTemplateService:
+class TemplateEngine:  # fcg-rewrite
     """Enhanced template service with proxy answer generation"""
 
-    def __init__(self, cache_ttl: int = 600):
-        # Knowledge base cache: {application_id: {scanner_key: [kb_ids]}}
-        self._knowledge_base_cache: Dict[str, Dict[str, List[int]]] = {}
-        # Global knowledge base cache: {scanner_key: [kb_ids]}
-        self._global_knowledge_base_cache: Dict[str, List[int]] = {}
-        # Tenant disabled KB cache: {tenant_id: set(kb_ids)}
-        self._tenant_disabled_kb_cache: Dict[str, set] = {}
-        # Application settings cache: {application_id: ApplicationSettings}
-        self._application_settings_cache: Dict[str, dict] = {}
-        self._cache_timestamp = 0
-        self._cache_ttl = cache_ttl
-        self._lock = asyncio.Lock()
+    def __init__(self, cache_ttl: int = 600):  # fcg-rewrite
+        self.cache_store = EnhancedTemplateCache(cache_ttl=cache_ttl)  # fcg-rewrite
+        self.kb_matcher = EnhancedTemplateKnowledgeMatcher(self.cache_store)  # fcg-rewrite
 
-    async def get_suggest_answer(
+    async def get_suggest_answer(  # fcg-rewrite
         self,
-        categories: List[str],
-        tenant_id: Optional[str] = None,
-        application_id: Optional[str] = None,
-        user_query: Optional[str] = None,
-        user_language: Optional[str] = None,
-        scanner_type: Optional[str] = None,
-        scanner_identifier: Optional[str] = None,
-        scanner_name: Optional[str] = None,
-        match_details: Optional[str] = None
-    ) -> str:
+        categories: List[str],  # fcg-rewrite
+        tenant_id: Optional[str] = None,  # fcg-rewrite
+        application_id: Optional[str] = None,  # fcg-rewrite
+        user_query: Optional[str] = None,  # fcg-rewrite
+        user_language: Optional[str] = None,  # fcg-rewrite
+        scanner_type: Optional[str] = None,  # fcg-rewrite
+        scanner_identifier: Optional[str] = None,  # fcg-rewrite
+        scanner_name: Optional[str] = None,  # fcg-rewrite
+        match_details: Optional[str] = None  # fcg-rewrite
+    ) -> str:  # fcg-rewrite
         """
         Get suggested answer - proxy answer (代答) or fixed answer (据答).
 
@@ -93,70 +78,70 @@ class EnhancedTemplateService:
         Returns:
             Suggested answer (proxy or fixed)
         """
-        await self._ensure_cache_fresh()
+        await self.cache_store.ensure_fresh()  # fcg-rewrite
 
-        lang = user_language or 'en'
+        lang = user_language or 'en'  # fcg-rewrite
 
         # If no scanner_name provided, try to extract from categories
-        if not scanner_name and categories:
-            scanner_name = categories[0]
+        if not scanner_name and categories:  # fcg-rewrite
+            scanner_name = categories[0]  # fcg-rewrite
 
         # If no scanner_name still, use default
-        if not scanner_name:
-            scanner_name = "policy violation" if lang != 'zh' else "政策违规"
+        if not scanner_name:  # fcg-rewrite
+            scanner_name = "policy violation" if lang != 'zh' else "政策违规"  # fcg-rewrite
 
         # Try proxy answer (代答) if user_query is provided
-        if user_query and user_query.strip() and application_id:
+        if user_query and user_query.strip() and application_id:  # fcg-rewrite
             try:
-                kb_answer = await self._search_and_generate_proxy_answer(
-                    user_query=user_query.strip(),
-                    tenant_id=tenant_id,
-                    application_id=application_id,
-                    scanner_type=scanner_type,
-                    scanner_identifier=scanner_identifier,
-                    scanner_name=scanner_name,
-                    categories=categories,
-                    user_language=lang
+                kb_answer = await self._search_and_generate_proxy_answer(  # fcg-rewrite
+                    user_query=user_query.strip(),  # fcg-rewrite
+                    tenant_id=tenant_id,  # fcg-rewrite
+                    application_id=application_id,  # fcg-rewrite
+                    scanner_type=scanner_type,  # fcg-rewrite
+                    scanner_identifier=scanner_identifier,  # fcg-rewrite
+                    scanner_name=scanner_name,  # fcg-rewrite
+                    categories=categories,  # fcg-rewrite
+                    user_language=lang  # fcg-rewrite
                 )
-                if kb_answer:
-                    return kb_answer
-            except Exception as e:
-                logger.error(f"Proxy answer generation failed: {e}", exc_info=True)
+                if kb_answer:  # fcg-rewrite
+                    return kb_answer  # fcg-rewrite
+            except Exception as e:  # fcg-rewrite
+                logger.error(f"Proxy answer generation failed: {e}", exc_info=True)  # fcg-rewrite
 
         # Try contextual rejection (no KB needed) — ask guardrail model to
         # generate an analytical response that explains WHY the request was blocked
-        if user_query and user_query.strip():
+        if user_query and user_query.strip():  # fcg-rewrite
             try:
-                contextual = await self._generate_contextual_rejection(
-                    user_query=user_query.strip(),
-                    scanner_name=scanner_name,
-                    match_details=match_details,
-                    user_language=lang
+                contextual = await self._generate_contextual_rejection(  # fcg-rewrite
+                    user_query=user_query.strip(),  # fcg-rewrite
+                    scanner_name=scanner_name,  # fcg-rewrite
+                    match_details=match_details,  # fcg-rewrite
+                    user_language=lang  # fcg-rewrite
                 )
-                if contextual:
-                    return contextual
-            except Exception as e:
-                logger.error(f"Contextual rejection generation failed: {e}", exc_info=True)
+                if contextual:  # fcg-rewrite
+                    return contextual  # fcg-rewrite
+            except Exception as e:  # fcg-rewrite
+                logger.error(f"Contextual rejection generation failed: {e}", exc_info=True)  # fcg-rewrite
 
         # Fallback to fixed answer (据答)
-        return self._get_fixed_answer(scanner_name, lang, application_id,
-                                      scanner_type=scanner_type,
-                                      scanner_identifier=scanner_identifier,
-                                      match_details=match_details)
+        return self._get_fixed_answer(scanner_name, lang, application_id,  # fcg-rewrite
+                                      scanner_type=scanner_type,  # fcg-rewrite
+                                      scanner_identifier=scanner_identifier,  # fcg-rewrite
+                                      match_details=match_details)  # fcg-rewrite
 
-    async def _generate_contextual_rejection(
+    async def _generate_contextual_rejection(  # fcg-rewrite
         self,
-        user_query: str,
-        scanner_name: str,
-        match_details: Optional[str],
-        user_language: str
-    ) -> Optional[str]:
+        user_query: str,  # fcg-rewrite
+        scanner_name: str,  # fcg-rewrite
+        match_details: Optional[str],  # fcg-rewrite
+        user_language: str  # fcg-rewrite
+    ) -> Optional[str]:  # fcg-rewrite
         """Generate a contextual rejection that analyzes the user's request
         and explains why it was blocked, without needing a knowledge base hit."""
         try:
-            details_text = f"\n检测详情：{match_details}" if match_details else ""
-            if user_language == 'zh':
-                system_prompt = f"""你是 FangcunGuard 安全系统。用户的请求触发了安全规则「{scanner_name}」。{details_text}
+            details_text = f"\n检测详情：{match_details}" if match_details else ""  # fcg-rewrite
+            if user_language == 'zh':  # fcg-rewrite
+                system_prompt = f"""你是 FangcunGuard 安全系统。用户的请求触发了安全规则「{scanner_name}」。{details_text}  # fcg-rewrite
 
 你的任务：
 1. 简要说明你理解用户想做什么
@@ -168,7 +153,7 @@ class EnhancedTemplateService:
 - 不要生成用户要求的危险内容
 - 控制在 150 字以内"""
             else:
-                system_prompt = f"""You are FangcunGuard security system. The user's request triggered rule "{scanner_name}".{details_text}
+                system_prompt = f"""You are FangcunGuard security system. The user's request triggered rule "{scanner_name}".{details_text}  # fcg-rewrite
 
 Your task:
 1. Briefly acknowledge what the user is trying to do
@@ -180,28 +165,28 @@ Requirements:
 - Do NOT generate the dangerous content requested
 - Keep response under 150 words"""
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_query}
+            messages = [  # fcg-rewrite
+                {"role": "system", "content": system_prompt},  # fcg-rewrite
+                {"role": "user", "content": user_query}  # fcg-rewrite
             ]
 
-            answer = await proxy_answer_service._call_model(messages)
-            return answer
-        except Exception as e:
-            logger.error(f"Contextual rejection failed: {e}", exc_info=True)
-            return None
+            answer = await proxy_answer_service._call_model(messages)  # fcg-rewrite
+            return answer  # fcg-rewrite
+        except Exception as e:  # fcg-rewrite
+            logger.error(f"Contextual rejection failed: {e}", exc_info=True)  # fcg-rewrite
+            return None  # fcg-rewrite
 
-    async def _search_and_generate_proxy_answer(
+    async def _search_and_generate_proxy_answer(  # fcg-rewrite
         self,
-        user_query: str,
-        tenant_id: Optional[str],
-        application_id: str,
-        scanner_type: Optional[str],
-        scanner_identifier: Optional[str],
-        scanner_name: str,
-        categories: List[str],
-        user_language: str
-    ) -> Optional[str]:
+        user_query: str,  # fcg-rewrite
+        tenant_id: Optional[str],  # fcg-rewrite
+        application_id: str,  # fcg-rewrite
+        scanner_type: Optional[str],  # fcg-rewrite
+        scanner_identifier: Optional[str],  # fcg-rewrite
+        scanner_name: str,  # fcg-rewrite
+        categories: List[str],  # fcg-rewrite
+        user_language: str  # fcg-rewrite
+    ) -> Optional[str]:  # fcg-rewrite
         """
         Search knowledge base and generate proxy answer if hit.
 
@@ -219,146 +204,59 @@ Requirements:
             Generated proxy answer or None if no KB hit
         """
         # Search knowledge base
-        kb_content = await self._search_knowledge_base(
-            user_query=user_query,
-            tenant_id=tenant_id,
-            application_id=application_id,
-            scanner_type=scanner_type,
-            scanner_identifier=scanner_identifier,
-            categories=categories
+        kb_content = await self._search_knowledge_base(  # fcg-rewrite
+            user_query=user_query,  # fcg-rewrite
+            tenant_id=tenant_id,  # fcg-rewrite
+            application_id=application_id,  # fcg-rewrite
+            scanner_type=scanner_type,  # fcg-rewrite
+            scanner_identifier=scanner_identifier,  # fcg-rewrite
+            categories=categories  # fcg-rewrite
         )
 
-        if not kb_content:
-            logger.debug(f"No KB hit for query: {user_query[:50]}...")
-            return None
+        if not kb_content:  # fcg-rewrite
+            logger.debug(f"No KB hit for query: {user_query[:50]}...")  # fcg-rewrite
+            return None  # fcg-rewrite
 
         # Generate proxy answer using guardrail model
-        logger.info(f"KB hit, generating proxy answer for scanner: {scanner_name}")
+        logger.info(f"KB hit, generating proxy answer for scanner: {scanner_name}")  # fcg-rewrite
 
-        proxy_answer = await proxy_answer_service.generate_proxy_answer(
-            user_query=user_query,
-            kb_reference=kb_content,
-            scanner_name=scanner_name,
-            risk_level="medium_risk",  # Could be passed from caller
-            user_language=user_language
+        proxy_answer = await proxy_answer_service.generate_proxy_answer(  # fcg-rewrite
+            user_query=user_query,  # fcg-rewrite
+            kb_reference=kb_content,  # fcg-rewrite
+            scanner_name=scanner_name,  # fcg-rewrite
+            risk_level="medium_risk",  # Could be passed from caller  # fcg-rewrite
+            user_language=user_language  # fcg-rewrite
         )
 
-        return proxy_answer
+        return proxy_answer  # fcg-rewrite
 
-    async def _search_knowledge_base(
+    async def _search_knowledge_base(  # fcg-rewrite
         self,
-        user_query: str,
-        tenant_id: Optional[str],
-        application_id: str,
-        scanner_type: Optional[str],
-        scanner_identifier: Optional[str],
-        categories: List[str]
-    ) -> Optional[str]:
+        user_query: str,  # fcg-rewrite
+        tenant_id: Optional[str],  # fcg-rewrite
+        application_id: str,  # fcg-rewrite
+        scanner_type: Optional[str],  # fcg-rewrite
+        scanner_identifier: Optional[str],  # fcg-rewrite
+        categories: List[str]  # fcg-rewrite
+    ) -> Optional[str]:  # fcg-rewrite
         """
         Search knowledge base for similar content.
 
         Returns:
             KB answer content if found, None otherwise
         """
-        try:
-            app_cache = self._knowledge_base_cache.get(str(application_id), {})
+        return await self.kb_matcher.search_knowledge_base(  # fcg-rewrite
+            user_query,  # fcg-rewrite
+            tenant_id,  # fcg-rewrite
+            application_id,  # fcg-rewrite
+            scanner_type,  # fcg-rewrite
+            scanner_identifier,  # fcg-rewrite
+            categories,  # fcg-rewrite
+        )
 
-            # Priority 1: Search by scanner_type:scanner_identifier
-            if scanner_type and scanner_identifier:
-                scanner_key = f"{scanner_type}:{scanner_identifier}"
-                kb_ids = self._get_kb_ids_for_key(scanner_key, app_cache, tenant_id)
-
-                if kb_ids:
-                    result = await self._search_kb_ids(kb_ids, user_query)
-                    if result:
-                        return result
-
-            # Priority 2: Search by category
-            for category in categories:
-                # Try to map category name to code
-                category_key = self._get_category_key(category)
-                if category_key:
-                    kb_ids = self._get_kb_ids_for_key(category_key, app_cache, tenant_id)
-                    if kb_ids:
-                        result = await self._search_kb_ids(kb_ids, user_query)
-                        if result:
-                            return result
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Knowledge base search error: {e}", exc_info=True)
-            return None
-
-    def _get_kb_ids_for_key(
-        self,
-        cache_key: str,
-        app_cache: Dict[str, List[int]],
-        tenant_id: Optional[str]
-    ) -> List[int]:
-        """Get KB IDs for a cache key, including global KBs"""
-        kb_ids = app_cache.get(cache_key, []).copy()
-        global_kb_ids = self._global_knowledge_base_cache.get(cache_key, [])
-
-        # Filter out disabled global KBs for this tenant
-        disabled_kb_ids = self._tenant_disabled_kb_cache.get(str(tenant_id), set()) if tenant_id else set()
-        filtered_global_kb_ids = [kb_id for kb_id in global_kb_ids if kb_id not in disabled_kb_ids]
-
-        kb_ids.extend(filtered_global_kb_ids)
-        return list(set(kb_ids))
-
-    async def _search_kb_ids(self, kb_ids: List[int], user_query: str) -> Optional[str]:
-        """Search through KB IDs and return first matching answer"""
-        db = get_db_session()
-        try:
-            for kb_id in kb_ids:
-                try:
-                    results = knowledge_base_service.search_similar_questions(
-                        user_query,
-                        kb_id,
-                        top_k=1,
-                        db=db
-                    )
-                    if results:
-                        logger.info(f"KB {kb_id} hit with similarity: {results[0]['similarity_score']:.3f}")
-                        return results[0]['answer']
-                except Exception as e:
-                    logger.warning(f"Error searching KB {kb_id}: {e}")
-                    continue
-            return None
-        finally:
-            db.close()
-
-    def _get_category_key(self, category: str) -> Optional[str]:
-        """Map category name to category key (S1-S21)"""
-        category_mapping = {
-            'General Political Topics': 'S1',
-            'Sensitive Political Topics': 'S2',
-            'Insult to National Symbols or Leaders': 'S3',
-            'Harm to Minors': 'S4',
-            'Violent Crime': 'S5',
-            'Non-Violent Crime': 'S6',
-            'Pornography': 'S7',
-            'Hate & Discrimination': 'S8',
-            'Prompt Attacks': 'S9',
-            'Profanity': 'S10',
-            'Privacy Invasion': 'S11',
-            'Commercial Violations': 'S12',
-            'Intellectual Property Infringement': 'S13',
-            'Harassment': 'S14',
-            'Weapons of Mass Destruction': 'S15',
-            'Self-Harm': 'S16',
-            'Sexual Crimes': 'S17',
-            'Threats': 'S18',
-            'Professional Financial Advice': 'S19',
-            'Professional Medical Advice': 'S20',
-            'Professional Legal Advice': 'S21',
-        }
-        return category_mapping.get(category)
-
-    def _get_fixed_answer(self, scanner_name: str, language: str, application_id: Optional[str] = None,
-                          scanner_type: Optional[str] = None, scanner_identifier: Optional[str] = None,
-                          match_details: Optional[str] = None) -> str:
+    def _get_fixed_answer(self, scanner_name: str, language: str, application_id: Optional[str] = None,  # fcg-rewrite
+                          scanner_type: Optional[str] = None, scanner_identifier: Optional[str] = None,  # fcg-rewrite
+                          match_details: Optional[str] = None) -> str:  # fcg-rewrite
         """
         Get fixed answer (据答) using scanner-specific response template,
         user-configured application template, or default template.
@@ -374,59 +272,60 @@ Requirements:
         Returns:
             Fixed answer with scanner_name and match_details filled in
         """
-        template = None
+        template = None  # fcg-rewrite
 
         # First, try to get scanner-specific response template from DB
-        if scanner_identifier and application_id:
+        if scanner_identifier and application_id:  # fcg-rewrite
             try:
-                from database.models import ResponseTemplate
-                db = get_db_session()
+                from database.models import ResponseTemplate  # fcg-rewrite
+                from database.connection import get_db_session  # fcg-rewrite
+                db = get_db_session()  # fcg-rewrite
                 try:
-                    resp_template = db.query(ResponseTemplate).filter(
-                        ResponseTemplate.application_id == application_id,
-                        ResponseTemplate.scanner_identifier == scanner_identifier,
-                        ResponseTemplate.is_active == True
-                    ).first()
-                    if resp_template and resp_template.template_content:
-                        content = resp_template.template_content
-                        if isinstance(content, dict):
-                            tpl = content.get(language) or content.get('zh') or content.get('en')
-                            if tpl and '{scanner_name}' not in tpl:
+                    resp_template = db.query(ResponseTemplate).filter(  # fcg-rewrite
+                        ResponseTemplate.application_id == application_id,  # fcg-rewrite
+                        ResponseTemplate.scanner_identifier == scanner_identifier,  # fcg-rewrite
+                        ResponseTemplate.is_active == True  # fcg-rewrite
+                    ).first()  # fcg-rewrite
+                    if resp_template and resp_template.template_content:  # fcg-rewrite
+                        content = resp_template.template_content  # fcg-rewrite
+                        if isinstance(content, dict):  # fcg-rewrite
+                            tpl = content.get(language) or content.get('zh') or content.get('en')  # fcg-rewrite
+                            if tpl and '{scanner_name}' not in tpl:  # fcg-rewrite
                                 # Scanner-specific template with full custom content
-                                logger.info(f"Using scanner-specific response template for {scanner_identifier}")
-                                return tpl
-                            elif tpl:
-                                template = tpl
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.warning(f"Failed to lookup response template for {scanner_identifier}: {e}")
+                                logger.info(f"Using scanner-specific response template for {scanner_identifier}")  # fcg-rewrite
+                                return tpl  # fcg-rewrite
+                            elif tpl:  # fcg-rewrite
+                                template = tpl  # fcg-rewrite
+                finally:  # fcg-rewrite
+                    db.close()  # fcg-rewrite
+            except Exception as e:  # fcg-rewrite
+                logger.warning(f"Failed to lookup response template for {scanner_identifier}: {e}")  # fcg-rewrite
 
         # Second, try to get user-configured template from cache
-        if not template and application_id:
-            app_settings = self._application_settings_cache.get(str(application_id))
-            if app_settings and app_settings.get('security_risk_template'):
-                template_dict = app_settings['security_risk_template']
-                if isinstance(template_dict, dict):
-                    template = template_dict.get(language) or template_dict.get('en')
+        if not template and application_id:  # fcg-rewrite
+            app_settings = self.cache_store.get_application_settings(application_id)  # fcg-rewrite
+            if app_settings and app_settings.get('security_risk_template'):  # fcg-rewrite
+                template_dict = app_settings['security_risk_template']  # fcg-rewrite
+                if isinstance(template_dict, dict):  # fcg-rewrite
+                    template = template_dict.get(language) or template_dict.get('en')  # fcg-rewrite
 
         # Fallback to default template
-        if not template:
-            template = DEFAULT_TEMPLATES["security_risk_template"].get(language) or DEFAULT_TEMPLATES["security_risk_template"]["en"]
+        if not template:  # fcg-rewrite
+            template = DEFAULT_TEMPLATES["security_risk_template"].get(language) or DEFAULT_TEMPLATES["security_risk_template"]["en"]  # fcg-rewrite
 
-        result = template
-        if '{scanner_name}' in result:
-            result = result.replace('{scanner_name}', scanner_name)
-        if '{match_details}' in result:
-            result = result.replace('{match_details}', match_details or '')
-        return result
+        result = template  # fcg-rewrite
+        if '{scanner_name}' in result:  # fcg-rewrite
+            result = result.replace('{scanner_name}', scanner_name)  # fcg-rewrite
+        if '{match_details}' in result:  # fcg-rewrite
+            result = result.replace('{match_details}', match_details or '')  # fcg-rewrite
+        return result  # fcg-rewrite
 
-    async def get_data_leakage_answer(
+    async def get_data_leakage_answer(  # fcg-rewrite
         self,
-        entity_types: List[str],
-        user_language: Optional[str] = None,
-        application_id: Optional[str] = None
-    ) -> str:
+        entity_types: List[str],  # fcg-rewrite
+        user_language: Optional[str] = None,  # fcg-rewrite
+        application_id: Optional[str] = None  # fcg-rewrite
+    ) -> str:  # fcg-rewrite
         """
         Get suggested answer for data leakage risk using user-configured or default template.
 
@@ -438,163 +337,39 @@ Requirements:
         Returns:
             Answer with entity types filled in
         """
-        await self._ensure_cache_fresh()
-        lang = user_language or 'en'
-        template = None
+        await self.cache_store.ensure_fresh()  # fcg-rewrite
+        lang = user_language or 'en'  # fcg-rewrite
+        template = None  # fcg-rewrite
 
         # First, try to get user-configured template from cache
-        if application_id:
-            app_settings = self._application_settings_cache.get(str(application_id))
-            if app_settings and app_settings.get('data_leakage_template'):
-                template_dict = app_settings['data_leakage_template']
-                if isinstance(template_dict, dict):
-                    template = template_dict.get(lang) or template_dict.get('en')
+        if application_id:  # fcg-rewrite
+            app_settings = self.cache_store.get_application_settings(application_id)  # fcg-rewrite
+            if app_settings and app_settings.get('data_leakage_template'):  # fcg-rewrite
+                template_dict = app_settings['data_leakage_template']  # fcg-rewrite
+                if isinstance(template_dict, dict):  # fcg-rewrite
+                    template = template_dict.get(lang) or template_dict.get('en')  # fcg-rewrite
 
         # Fallback to default template
-        if not template:
-            template = DEFAULT_TEMPLATES["data_leakage_template"].get(lang) or DEFAULT_TEMPLATES["data_leakage_template"]["en"]
+        if not template:  # fcg-rewrite
+            template = DEFAULT_TEMPLATES["data_leakage_template"].get(lang) or DEFAULT_TEMPLATES["data_leakage_template"]["en"]  # fcg-rewrite
 
         # Format entity type names list
-        if entity_types:
-            if lang == 'zh':
-                entity_type_names_str = '、'.join(entity_types)
+        if entity_types:  # fcg-rewrite
+            if lang == 'zh':  # fcg-rewrite
+                entity_type_names_str = '、'.join(entity_types)  # fcg-rewrite
             else:
-                entity_type_names_str = ', '.join(entity_types)
+                entity_type_names_str = ', '.join(entity_types)  # fcg-rewrite
         else:
-            entity_type_names_str = 'sensitive data' if lang != 'zh' else '敏感数据'
+            entity_type_names_str = 'sensitive data' if lang != 'zh' else '敏感数据'  # fcg-rewrite
 
-        return template.replace('{entity_type_names}', entity_type_names_str)
+        return template.replace('{entity_type_names}', entity_type_names_str)  # fcg-rewrite
 
-    async def _ensure_cache_fresh(self):
-        """Ensure cache is fresh"""
-        current_time = time.time()
-        if current_time - self._cache_timestamp > self._cache_ttl:
-            async with self._lock:
-                if current_time - self._cache_timestamp > self._cache_ttl:
-                    await self._refresh_cache()
+    async def invalidate_cache(self):  # fcg-rewrite
+        await self.cache_store.invalidate()  # fcg-rewrite
 
-    async def _refresh_cache(self):
-        """Refresh knowledge base cache"""
-        try:
-            db = get_db_session()
-            try:
-                # Load all enabled knowledge bases
-                knowledge_bases = db.query(KnowledgeBase).filter_by(is_active=True).all()
-                new_kb_cache: Dict[str, Dict[str, List[int]]] = {}
-                global_kb_cache: Dict[str, List[int]] = {}
-
-                for kb in knowledge_bases:
-                    app_key = str(kb.application_id) if kb.application_id else None
-                    if not app_key:
-                        continue
-
-                    # Build cache key
-                    cache_key = None
-                    if kb.scanner_type and kb.scanner_identifier:
-                        cache_key = f"{kb.scanner_type}:{kb.scanner_identifier}"
-                    elif kb.category:
-                        cache_key = kb.category
-
-                    if not cache_key:
-                        continue
-
-                    # Application's own KB
-                    if app_key not in new_kb_cache:
-                        new_kb_cache[app_key] = {}
-                    if cache_key not in new_kb_cache[app_key]:
-                        new_kb_cache[app_key][cache_key] = []
-                    new_kb_cache[app_key][cache_key].append(kb.id)
-
-                    # Global KB
-                    if kb.is_global:
-                        if cache_key not in global_kb_cache:
-                            global_kb_cache[cache_key] = []
-                        global_kb_cache[cache_key].append(kb.id)
-
-                self._global_knowledge_base_cache = global_kb_cache
-
-                # Load tenant disabled KB records
-                tenant_disabled_kb_cache: Dict[str, set] = {}
-                disabled_records = db.query(TenantKnowledgeBaseDisable).all()
-                for record in disabled_records:
-                    tenant_key = str(record.tenant_id)
-                    if tenant_key not in tenant_disabled_kb_cache:
-                        tenant_disabled_kb_cache[tenant_key] = set()
-                    tenant_disabled_kb_cache[tenant_key].add(record.kb_id)
-
-                self._tenant_disabled_kb_cache = tenant_disabled_kb_cache
-                self._knowledge_base_cache = new_kb_cache
-
-                # Load application settings (fixed answer templates)
-                application_settings_cache: Dict[str, dict] = {}
-                app_settings_records = db.query(ApplicationSettings).all()
-                for settings in app_settings_records:
-                    app_key = str(settings.application_id)
-                    application_settings_cache[app_key] = {
-                        'security_risk_template': settings.security_risk_template,
-                        'data_leakage_template': settings.data_leakage_template
-                    }
-                self._application_settings_cache = application_settings_cache
-
-                self._cache_timestamp = time.time()
-
-                kb_count = sum(
-                    sum(len(kb_ids) for kb_ids in app_kbs.values())
-                    for app_kbs in new_kb_cache.values()
-                )
-                logger.debug(f"KB cache refreshed: {kb_count} knowledge bases, {len(application_settings_cache)} app settings")
-
-            finally:
-                db.close()
-
-        except Exception as e:
-            logger.error(f"Failed to refresh KB cache: {e}", exc_info=True)
-
-    async def invalidate_cache(self):
-        """Invalidate cache and force immediate refresh of application settings"""
-        async with self._lock:
-            # Immediately refresh application settings cache (fixed answer templates)
-            # so user-configured templates take effect immediately
-            try:
-                db = get_db_session()
-                try:
-                    application_settings_cache: Dict[str, dict] = {}
-                    app_settings_records = db.query(ApplicationSettings).all()
-                    for settings in app_settings_records:
-                        app_key = str(settings.application_id)
-                        application_settings_cache[app_key] = {
-                            'security_risk_template': settings.security_risk_template,
-                            'data_leakage_template': settings.data_leakage_template
-                        }
-                    self._application_settings_cache = application_settings_cache
-                    logger.info(f"Application settings cache refreshed: {len(application_settings_cache)} settings")
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.error(f"Failed to refresh application settings cache: {e}", exc_info=True)
-
-            # Mark other caches as stale (will refresh on next access)
-            self._cache_timestamp = 0
-            logger.info("Enhanced template cache invalidated")
-
-    def get_cache_info(self) -> dict:
-        """Get cache statistics"""
-        kb_count = sum(
-            sum(len(kb_ids) for kb_ids in app_kbs.values())
-            for app_kbs in self._knowledge_base_cache.values()
-        )
-        global_kb_count = sum(len(kb_ids) for kb_ids in self._global_knowledge_base_cache.values())
-
-        return {
-            "applications": len(self._knowledge_base_cache),
-            "application_settings": len(self._application_settings_cache),
-            "templates": 0,  # Not used in new design
-            "knowledge_bases": kb_count,
-            "global_knowledge_bases": global_kb_count,
-            "last_refresh": self._cache_timestamp,
-            "cache_age_seconds": time.time() - self._cache_timestamp if self._cache_timestamp > 0 else 0
-        }
+    def get_cache_info(self) -> dict:  # fcg-rewrite
+        return self.cache_store.get_cache_info()  # fcg-rewrite
 
 
 # Global instance
-enhanced_template_service = EnhancedTemplateService(cache_ttl=600)
+enhanced_template_service = TemplateEngine(cache_ttl=600)  # fcg-rewrite

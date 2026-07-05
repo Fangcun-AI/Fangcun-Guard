@@ -9,7 +9,7 @@ from utils.logger import setup_logger
 logger = setup_logger()
 
 
-class AgentSafetyPolicyCache:
+class AgentSafetyPolicyStore:
     """Backward-compatible facade delegating to plugin caches"""
 
     async def get_agent_safety_policy(self, application_id: str):
@@ -34,4 +34,4 @@ class AgentSafetyPolicyCache:
 
 
 # Global instance (backward compatible)
-agent_safety_cache = AgentSafetyPolicyCache()
+agent_safety_cache = AgentSafetyPolicyStore()

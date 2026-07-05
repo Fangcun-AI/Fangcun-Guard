@@ -59,7 +59,7 @@ class HealthResponse(BaseModel):
     device: str
 
 
-def _normalize_label(raw_label: str) -> str:
+def _canonicalize_label(raw_label: str) -> str:
     """Normalize model labels to canonical names.
 
     v1 (Prompt-Guard-86M): {0: 'BENIGN', 1: 'INJECTION', 2: 'JAILBREAK'} → keep as-is
@@ -88,7 +88,7 @@ def load_model(model_name: str):
 
     # Build label map from model config
     raw_id2label = _model.config.id2label  # e.g. {0: 'LABEL_0', 1: 'LABEL_1'} or {"0": "LABEL_0", ...}
-    _label_map = {int(i): _normalize_label(lbl) for i, lbl in raw_id2label.items()}
+    _label_map = {int(i): _canonicalize_label(lbl) for i, lbl in raw_id2label.items()}
     _num_labels = len(_label_map)
     logger.info(f"Label map ({_num_labels} labels): {_label_map}")
 

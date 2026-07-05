@@ -1,473 +1,230 @@
-"""
-Stripe payment service for international users
-Uses Stripe SDK for payment processing
-"""
+"""Stripe adapter used by the payment orchestration layer."""
 
-import stripe
-from stripe import _error as stripe_error
-from datetime import datetime
-from typing import Optional, Dict, Any
-from urllib.parse import quote
+from datetime import datetime  # fcg-rewrite
+from typing import Any, Dict, Optional  # fcg-rewrite
+from urllib.parse import quote  # fcg-rewrite
 
-from config import settings
-from utils.logger import get_logger
+import stripe  # fcg-rewrite
+from stripe import _error as stripe_error  # fcg-rewrite
 
-logger = get_logger(__name__)
+from config import settings  # fcg-rewrite
+from utils.logger import get_logger  # fcg-rewrite
+
+logger = get_logger(__name__)  # fcg-rewrite
+_URL_SAFE = ":/?#[]@!$&'()*+,;="  # fcg-rewrite
 
 
-class StripeService:
-    """Stripe payment service"""
+class StripeService:  # fcg-rewrite
+    def __init__(self):  # fcg-rewrite
+        self.secret_key = settings.stripe_secret_key  # fcg-rewrite
+        self.publishable_key = settings.stripe_publishable_key  # fcg-rewrite
+        self.webhook_secret = settings.stripe_webhook_secret  # fcg-rewrite
+        self.price_id_monthly = settings.stripe_price_id_monthly  # fcg-rewrite
+        if self.secret_key:  # fcg-rewrite
+            stripe.api_key = self.secret_key  # fcg-rewrite
 
-    def __init__(self):
-        self.secret_key = settings.stripe_secret_key
-        self.publishable_key = settings.stripe_publishable_key
-        self.webhook_secret = settings.stripe_webhook_secret
-        self.price_id_monthly = settings.stripe_price_id_monthly
+    def _require_key(self) -> None:  # fcg-rewrite
+        if not self.secret_key:  # fcg-rewrite
+            raise ValueError("Stripe is not configured")  # fcg-rewrite
 
-        # Initialize Stripe
-        if self.secret_key:
-            stripe.api_key = self.secret_key
-
-    async def customer_exists(self, customer_id: str) -> bool:
-        """
-        Check if a Stripe customer exists
-
-        Args:
-            customer_id: Stripe customer ID
-
-        Returns:
-            True if customer exists, False otherwise
-        """
-        if not self.secret_key:
-            return False
-
+    @staticmethod  # fcg-rewrite
+    def _url(value: str) -> str:  # fcg-rewrite
+        value = value.strip("'\"")  # fcg-rewrite
         try:
-            stripe.Customer.retrieve(customer_id)
-            return True
-        except stripe_error.InvalidRequestError as e:
-            if 'No such customer' in str(e):
-                logger.warning(f"Stripe customer not found: {customer_id}")
-                return False
-            raise
-        except Exception as e:
-            logger.error(f"Error checking customer existence: {e}")
-            return False
+            value.encode("ascii")  # fcg-rewrite
+            return value  # fcg-rewrite
+        except UnicodeEncodeError:  # fcg-rewrite
+            return quote(value, safe=_URL_SAFE)  # fcg-rewrite
 
-    async def create_customer(
+    @staticmethod  # fcg-rewrite
+    def _checkout_result(session, customer_id: str) -> Dict[str, Any]:  # fcg-rewrite
+        return {"session_id": session.id, "checkout_url": session.url, "customer_id": customer_id}  # fcg-rewrite
+
+    async def customer_exists(self, customer_id: str) -> bool:  # fcg-rewrite
+        if not self.secret_key:  # fcg-rewrite
+            return False  # fcg-rewrite
+        try:
+            stripe.Customer.retrieve(customer_id)  # fcg-rewrite
+            return True  # fcg-rewrite
+        except stripe_error.InvalidRequestError as error:  # fcg-rewrite
+            if "No such customer" not in str(error):  # fcg-rewrite
+                raise
+            logger.warning("Stripe customer does not exist: %s", customer_id)  # fcg-rewrite
+        except Exception as error:  # fcg-rewrite
+            logger.error("Stripe customer lookup failed: %s", error)  # fcg-rewrite
+        return False  # fcg-rewrite
+
+    async def create_customer(self, email: str, tenant_id: str, name: Optional[str] = None) -> str:  # fcg-rewrite
+        self._require_key()  # fcg-rewrite
+        customer = stripe.Customer.create(email=email, name=name, metadata={"tenant_id": str(tenant_id)})  # fcg-rewrite
+        logger.info("Created Stripe customer %s for tenant %s", customer.id, tenant_id)  # fcg-rewrite
+        return customer.id  # fcg-rewrite
+
+    async def create_subscription_checkout(  # fcg-rewrite
         self,
-        email: str,
-        tenant_id: str,
-        name: Optional[str] = None
-    ) -> str:
-        """
-        Create a Stripe customer
-
-        Args:
-            email: Customer email
-            tenant_id: Tenant ID for metadata
-            name: Customer name
-
-        Returns:
-            Stripe customer ID
-        """
-        if not self.secret_key:
-            raise ValueError("Stripe is not configured")
-
-        customer = stripe.Customer.create(
-            email=email,
-            name=name,
-            metadata={
-                "tenant_id": str(tenant_id)
-            }
+        customer_id: str,  # fcg-rewrite
+        success_url: str,  # fcg-rewrite
+        cancel_url: str,  # fcg-rewrite
+        tenant_id: str,  # fcg-rewrite
+        price_id: Optional[str] = None,  # fcg-rewrite
+        tier_number: Optional[int] = None,  # fcg-rewrite
+    ) -> Dict[str, Any]:  # fcg-rewrite
+        self._require_key()  # fcg-rewrite
+        selected_price = price_id or self.price_id_monthly  # fcg-rewrite
+        if not selected_price:  # fcg-rewrite
+            raise ValueError("Stripe price ID not configured")  # fcg-rewrite
+        metadata = {"tenant_id": str(tenant_id), "order_type": "subscription"}  # fcg-rewrite
+        if tier_number is not None:  # fcg-rewrite
+            metadata["tier_number"] = str(tier_number)  # fcg-rewrite
+        session = stripe.checkout.Session.create(  # fcg-rewrite
+            customer=customer_id,  # fcg-rewrite
+            payment_method_types=["card"],  # fcg-rewrite
+            line_items=[{"price": selected_price, "quantity": 1}],  # fcg-rewrite
+            mode="subscription",  # fcg-rewrite
+            success_url=self._url(success_url),  # fcg-rewrite
+            cancel_url=self._url(cancel_url),  # fcg-rewrite
+            metadata=metadata,  # fcg-rewrite
         )
+        return self._checkout_result(session, customer_id)  # fcg-rewrite
 
-        logger.info(f"Created Stripe customer: {customer.id} for tenant: {tenant_id}")
-        return customer.id
-
-    async def create_subscription_checkout(
+    async def create_package_checkout(  # fcg-rewrite
         self,
-        customer_id: str,
-        success_url: str,
-        cancel_url: str,
-        tenant_id: str,
-        price_id: Optional[str] = None,
-        tier_number: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """
-        Create a Stripe Checkout session for subscription
-
-        Args:
-            customer_id: Stripe customer ID
-            success_url: URL to redirect after successful payment
-            cancel_url: URL to redirect after cancelled payment
-            tenant_id: Tenant ID for metadata
-            price_id: Optional tier-specific Stripe Price ID (overrides default)
-            tier_number: Optional tier number for metadata
-
-        Returns:
-            Dict containing checkout session URL
-        """
-        if not self.secret_key:
-            raise ValueError("Stripe is not configured")
-
-        # Use tier-specific price_id if provided, otherwise fall back to default
-        effective_price_id = price_id or self.price_id_monthly
-        if not effective_price_id:
-            raise ValueError("Stripe price ID not configured")
-
-        # Strip any surrounding quotes from URLs (in case .env file has quoted values)
-        success_url = success_url.strip('\'"')
-        cancel_url = cancel_url.strip('\'"')
-
-        # Ensure URLs are ASCII-encoded (Stripe requirement)
-        # encode('ascii') will fail if there are non-ASCII chars, so we encode to UTF-8 bytes then decode
+        customer_id: str,  # fcg-rewrite
+        amount: int,  # fcg-rewrite
+        package_id: str,  # fcg-rewrite
+        package_name: str,  # fcg-rewrite
+        success_url: str,  # fcg-rewrite
+        cancel_url: str,  # fcg-rewrite
+        tenant_id: str,  # fcg-rewrite
+    ) -> Dict[str, Any]:  # fcg-rewrite
+        self._require_key()  # fcg-rewrite
         try:
-            success_url_encoded = success_url.encode('ascii').decode('ascii')
-            cancel_url_encoded = cancel_url.encode('ascii').decode('ascii')
-        except UnicodeEncodeError:
-            # If URLs contain non-ASCII, encode them properly
-            logger.warning(f"URLs contain non-ASCII characters, encoding them")
-            success_url_encoded = quote(success_url, safe=':/?#[]@!$&\'()*+,;=')
-            cancel_url_encoded = quote(cancel_url, safe=':/?#[]@!$&\'()*+,;=')
-
-        checkout_metadata = {
-            "tenant_id": str(tenant_id),
-            "order_type": "subscription"
-        }
-        if tier_number is not None:
-            checkout_metadata["tier_number"] = str(tier_number)
-
-        session = stripe.checkout.Session.create(
-            customer=customer_id,
-            payment_method_types=['card'],
-            line_items=[{
-                'price': effective_price_id,
-                'quantity': 1,
-            }],
-            mode='subscription',
-            success_url=success_url_encoded,
-            cancel_url=cancel_url_encoded,
-            metadata=checkout_metadata
-        )
-
-        logger.info(f"Created Stripe checkout session: {session.id}")
-
-        return {
-            "session_id": session.id,
-            "checkout_url": session.url,
-            "customer_id": customer_id
-        }
-
-    async def create_package_checkout(
-        self,
-        customer_id: str,
-        amount: int,  # Amount in cents
-        package_id: str,
-        package_name: str,
-        success_url: str,
-        cancel_url: str,
-        tenant_id: str
-    ) -> Dict[str, Any]:
-        """
-        Create a Stripe Checkout session for one-time package purchase
-
-        Args:
-            customer_id: Stripe customer ID
-            amount: Amount in cents (USD)
-            package_id: Package ID being purchased
-            package_name: Package name for display
-            success_url: URL to redirect after successful payment
-            cancel_url: URL to redirect after cancelled payment
-            tenant_id: Tenant ID for metadata
-
-        Returns:
-            Dict containing checkout session URL
-        """
-        if not self.secret_key:
-            raise ValueError("Stripe is not configured")
-
-        # Strip any surrounding quotes from URLs (in case .env file has quoted values)
-        success_url = success_url.strip('\'"')
-        cancel_url = cancel_url.strip('\'"')
-
-        # Ensure URLs are ASCII-encoded (Stripe requirement)
-        try:
-            success_url_encoded = success_url.encode('ascii').decode('ascii')
-            cancel_url_encoded = cancel_url.encode('ascii').decode('ascii')
-        except UnicodeEncodeError:
-            # If URLs contain non-ASCII, encode them properly
-            logger.warning(f"URLs contain non-ASCII characters, encoding them")
-            success_url_encoded = quote(success_url, safe=':/?#[]@!$&\'()*+,;=')
-            cancel_url_encoded = quote(cancel_url, safe=':/?#[]@!$&\'()*+,;=')
-
-        # Ensure package name is ASCII-safe (Stripe doesn't accept non-ASCII in product names)
-        # If package name contains non-ASCII, we'll use a sanitized version for Stripe
-        # but keep the original in metadata for our records
-        try:
-            package_name_safe = package_name.encode('ascii').decode('ascii')
-        except UnicodeEncodeError:
-            # Package name has non-ASCII characters - use generic name for Stripe display
-            logger.warning(f"Package name contains non-ASCII characters: {package_name}")
-            package_name_safe = f"Scanner Package (ID: {package_id[:8]})"
-
-        session = stripe.checkout.Session.create(
-            customer=customer_id,
-            payment_method_types=['card'],
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {
-                        'name': package_name_safe,
-                        'description': 'FangcunGuard Scanner Package',
-                    },
-                    'unit_amount': amount,
+            package_name.encode("ascii")  # fcg-rewrite
+            display_name = package_name  # fcg-rewrite
+        except UnicodeEncodeError:  # fcg-rewrite
+            display_name = f"Scanner Package (ID: {package_id[:8]})"  # fcg-rewrite
+        session = stripe.checkout.Session.create(  # fcg-rewrite
+            customer=customer_id,  # fcg-rewrite
+            payment_method_types=["card"],  # fcg-rewrite
+            line_items=[{  # fcg-rewrite
+                "price_data": {  # fcg-rewrite
+                    "currency": "usd",  # fcg-rewrite
+                    "product_data": {"name": display_name, "description": "FangcunGuard Scanner Package"},  # fcg-rewrite
+                    "unit_amount": amount,  # fcg-rewrite
                 },
-                'quantity': 1,
+                "quantity": 1,  # fcg-rewrite
             }],
-            mode='payment',
-            success_url=success_url_encoded,
-            cancel_url=cancel_url_encoded,
-            metadata={
-                "tenant_id": str(tenant_id),
-                "package_id": str(package_id),
-                "package_name": package_name,  # Store original name in metadata
-                "order_type": "package"
-            }
+            mode="payment",  # fcg-rewrite
+            success_url=self._url(success_url),  # fcg-rewrite
+            cancel_url=self._url(cancel_url),  # fcg-rewrite
+            metadata={  # fcg-rewrite
+                "tenant_id": str(tenant_id),  # fcg-rewrite
+                "package_id": str(package_id),  # fcg-rewrite
+                "package_name": package_name,  # fcg-rewrite
+                "order_type": "package",  # fcg-rewrite
+            },
         )
+        return self._checkout_result(session, customer_id)  # fcg-rewrite
 
-        logger.info(f"Created Stripe package checkout session: {session.id}")
-
-        return {
-            "session_id": session.id,
-            "checkout_url": session.url,
-            "customer_id": customer_id
-        }
-
-    async def get_checkout_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve a Stripe Checkout session by ID
-        Used as fallback to check payment status when webhook hasn't arrived
-
-        Args:
-            session_id: Stripe checkout session ID
-
-        Returns:
-            Session details including payment_status
-        """
-        if not self.secret_key:
-            raise ValueError("Stripe is not configured")
-
+    async def get_checkout_session(self, session_id: str) -> Optional[Dict[str, Any]]:  # fcg-rewrite
+        self._require_key()  # fcg-rewrite
         try:
-            session = stripe.checkout.Session.retrieve(session_id)
+            session = stripe.checkout.Session.retrieve(session_id)  # fcg-rewrite
+        except stripe_error.StripeError as error:  # fcg-rewrite
+            logger.error("Unable to retrieve Stripe session %s: %s", session_id, error)  # fcg-rewrite
+            return None  # fcg-rewrite
+        return {  # fcg-rewrite
+            field: getattr(session, field)  # fcg-rewrite
+            for field in (  # fcg-rewrite
+                "id", "status", "payment_status", "customer", "subscription",  # fcg-rewrite
+                "payment_intent", "amount_total", "currency", "metadata",  # fcg-rewrite
+            )
+        }
 
-            logger.info(f"Retrieved Stripe session {session_id}: status={session.status}, payment_status={session.payment_status}")
-
-            return {
-                "id": session.id,
-                "status": session.status,
-                "payment_status": session.payment_status,
-                "customer": session.customer,
-                "subscription": session.subscription,
-                "payment_intent": session.payment_intent,
-                "amount_total": session.amount_total,
-                "currency": session.currency,
-                "metadata": session.metadata
-            }
-        except stripe_error.StripeError as e:
-            logger.error(f"Failed to retrieve Stripe session {session_id}: {e}")
-            return None
-
-    async def create_payment_intent(
+    async def create_payment_intent(  # fcg-rewrite
         self,
-        amount: int,  # Amount in cents
-        currency: str = "usd",
-        customer_id: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
-        """
-        Create a Stripe PaymentIntent for custom payment flows
+        amount: int,  # fcg-rewrite
+        currency: str = "usd",  # fcg-rewrite
+        customer_id: Optional[str] = None,  # fcg-rewrite
+        metadata: Optional[Dict[str, str]] = None,  # fcg-rewrite
+    ) -> Dict[str, Any]:  # fcg-rewrite
+        self._require_key()  # fcg-rewrite
+        params: Dict[str, Any] = {  # fcg-rewrite
+            "amount": amount,  # fcg-rewrite
+            "currency": currency,  # fcg-rewrite
+            "automatic_payment_methods": {"enabled": True},  # fcg-rewrite
+        }
+        if customer_id:  # fcg-rewrite
+            params["customer"] = customer_id  # fcg-rewrite
+        if metadata:  # fcg-rewrite
+            params["metadata"] = metadata  # fcg-rewrite
+        intent = stripe.PaymentIntent.create(**params)  # fcg-rewrite
+        return {"client_secret": intent.client_secret, "payment_intent_id": intent.id}  # fcg-rewrite
 
-        Args:
-            amount: Amount in cents
-            currency: Currency code
-            customer_id: Optional Stripe customer ID
-            metadata: Optional metadata
-
-        Returns:
-            Dict containing client_secret for frontend
-        """
-        if not self.secret_key:
-            raise ValueError("Stripe is not configured")
-
-        intent_params = {
-            "amount": amount,
-            "currency": currency,
-            "automatic_payment_methods": {"enabled": True},
+    async def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:  # fcg-rewrite
+        subscription = self._modify_subscription(subscription_id, True)  # fcg-rewrite
+        return {  # fcg-rewrite
+            "subscription_id": subscription.id,  # fcg-rewrite
+            "status": subscription.status,  # fcg-rewrite
+            "cancel_at_period_end": subscription.cancel_at_period_end,  # fcg-rewrite
+            "current_period_end": datetime.fromtimestamp(subscription.current_period_end),  # fcg-rewrite
         }
 
-        if customer_id:
-            intent_params["customer"] = customer_id
-
-        if metadata:
-            intent_params["metadata"] = metadata
-
-        intent = stripe.PaymentIntent.create(**intent_params)
-
-        logger.info(f"Created PaymentIntent: {intent.id}")
-
-        return {
-            "client_secret": intent.client_secret,
-            "payment_intent_id": intent.id
+    async def reactivate_subscription(self, subscription_id: str) -> Dict[str, Any]:  # fcg-rewrite
+        subscription = self._modify_subscription(subscription_id, False)  # fcg-rewrite
+        return {  # fcg-rewrite
+            "subscription_id": subscription.id,  # fcg-rewrite
+            "status": subscription.status,  # fcg-rewrite
+            "cancel_at_period_end": subscription.cancel_at_period_end,  # fcg-rewrite
         }
 
-    async def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
-        """
-        Cancel a Stripe subscription at period end
+    def _modify_subscription(self, subscription_id: str, cancel: bool):  # fcg-rewrite
+        self._require_key()  # fcg-rewrite
+        return stripe.Subscription.modify(subscription_id, cancel_at_period_end=cancel)  # fcg-rewrite
 
-        Args:
-            subscription_id: Stripe subscription ID
-
-        Returns:
-            Updated subscription info
-        """
-        if not self.secret_key:
-            raise ValueError("Stripe is not configured")
-
-        subscription = stripe.Subscription.modify(
-            subscription_id,
-            cancel_at_period_end=True
-        )
-
-        logger.info(f"Cancelled subscription: {subscription_id} at period end")
-
-        return {
-            "subscription_id": subscription.id,
-            "status": subscription.status,
-            "cancel_at_period_end": subscription.cancel_at_period_end,
-            "current_period_end": datetime.fromtimestamp(subscription.current_period_end)
+    async def get_subscription(self, subscription_id: str) -> Dict[str, Any]:  # fcg-rewrite
+        self._require_key()  # fcg-rewrite
+        subscription = stripe.Subscription.retrieve(subscription_id)  # fcg-rewrite
+        return {  # fcg-rewrite
+            "subscription_id": subscription.id,  # fcg-rewrite
+            "status": subscription.status,  # fcg-rewrite
+            "current_period_start": datetime.fromtimestamp(subscription.current_period_start),  # fcg-rewrite
+            "current_period_end": datetime.fromtimestamp(subscription.current_period_end),  # fcg-rewrite
+            "cancel_at_period_end": subscription.cancel_at_period_end,  # fcg-rewrite
+            "customer_id": subscription.customer,  # fcg-rewrite
         }
 
-    async def reactivate_subscription(self, subscription_id: str) -> Dict[str, Any]:
-        """
-        Reactivate a cancelled subscription
+    def verify_webhook(self, payload: bytes, sig_header: str) -> Dict[str, Any]:  # fcg-rewrite
+        if not self.webhook_secret:  # fcg-rewrite
+            raise ValueError("Stripe webhook secret not configured")  # fcg-rewrite
+        return stripe.Webhook.construct_event(payload, sig_header, self.webhook_secret)  # fcg-rewrite
 
-        Args:
-            subscription_id: Stripe subscription ID
-
-        Returns:
-            Updated subscription info
-        """
-        if not self.secret_key:
-            raise ValueError("Stripe is not configured")
-
-        subscription = stripe.Subscription.modify(
-            subscription_id,
-            cancel_at_period_end=False
-        )
-
-        logger.info(f"Reactivated subscription: {subscription_id}")
-
-        return {
-            "subscription_id": subscription.id,
-            "status": subscription.status,
-            "cancel_at_period_end": subscription.cancel_at_period_end
+    def parse_checkout_completed(self, event: Dict[str, Any]) -> Dict[str, Any]:  # fcg-rewrite
+        source = event["data"]["object"]  # fcg-rewrite
+        return {  # fcg-rewrite
+            target: source.get(origin)  # fcg-rewrite
+            for target, origin in {  # fcg-rewrite
+                "session_id": "id", "customer_id": "customer", "subscription_id": "subscription",  # fcg-rewrite
+                "payment_intent_id": "payment_intent", "amount_total": "amount_total",  # fcg-rewrite
+                "currency": "currency", "payment_status": "payment_status", "metadata": "metadata",  # fcg-rewrite
+            }.items()  # fcg-rewrite
         }
 
-    async def get_subscription(self, subscription_id: str) -> Dict[str, Any]:
-        """
-        Get subscription details
-
-        Args:
-            subscription_id: Stripe subscription ID
-
-        Returns:
-            Subscription details
-        """
-        if not self.secret_key:
-            raise ValueError("Stripe is not configured")
-
-        subscription = stripe.Subscription.retrieve(subscription_id)
-
-        return {
-            "subscription_id": subscription.id,
-            "status": subscription.status,
-            "current_period_start": datetime.fromtimestamp(subscription.current_period_start),
-            "current_period_end": datetime.fromtimestamp(subscription.current_period_end),
-            "cancel_at_period_end": subscription.cancel_at_period_end,
-            "customer_id": subscription.customer
+    def parse_invoice_paid(self, event: Dict[str, Any]) -> Dict[str, Any]:  # fcg-rewrite
+        invoice = event["data"]["object"]  # fcg-rewrite
+        timestamp = lambda name: datetime.fromtimestamp(invoice[name]) if invoice.get(name) else None  # fcg-rewrite
+        return {  # fcg-rewrite
+            "invoice_id": invoice.get("id"),  # fcg-rewrite
+            "customer_id": invoice.get("customer"),  # fcg-rewrite
+            "subscription_id": invoice.get("subscription"),  # fcg-rewrite
+            "amount_paid": invoice.get("amount_paid"),  # fcg-rewrite
+            "currency": invoice.get("currency"),  # fcg-rewrite
+            "period_start": timestamp("period_start"),  # fcg-rewrite
+            "period_end": timestamp("period_end"),  # fcg-rewrite
         }
 
-    def verify_webhook(self, payload: bytes, sig_header: str) -> Dict[str, Any]:
-        """
-        Verify and parse Stripe webhook event
-
-        Args:
-            payload: Raw request body
-            sig_header: Stripe-Signature header
-
-        Returns:
-            Parsed webhook event
-        """
-        if not self.webhook_secret:
-            raise ValueError("Stripe webhook secret not configured")
-
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, self.webhook_secret
-        )
-
-        return event
-
-    def parse_checkout_completed(self, event: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Parse checkout.session.completed event
-
-        Args:
-            event: Stripe webhook event
-
-        Returns:
-            Parsed checkout result
-        """
-        session = event['data']['object']
-
-        result = {
-            "session_id": session.get('id'),
-            "customer_id": session.get('customer'),
-            "subscription_id": session.get('subscription'),
-            "payment_intent_id": session.get('payment_intent'),
-            "amount_total": session.get('amount_total'),
-            "currency": session.get('currency'),
-            "payment_status": session.get('payment_status'),
-            "metadata": session.get('metadata', {}),
-        }
-
-        return result
-
-    def parse_invoice_paid(self, event: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Parse invoice.paid event (for recurring subscription payments)
-
-        Args:
-            event: Stripe webhook event
-
-        Returns:
-            Parsed invoice result
-        """
-        invoice = event['data']['object']
-
-        return {
-            "invoice_id": invoice.get('id'),
-            "customer_id": invoice.get('customer'),
-            "subscription_id": invoice.get('subscription'),
-            "amount_paid": invoice.get('amount_paid'),
-            "currency": invoice.get('currency'),
-            "period_start": datetime.fromtimestamp(invoice['period_start']) if invoice.get('period_start') else None,
-            "period_end": datetime.fromtimestamp(invoice['period_end']) if invoice.get('period_end') else None,
-        }
-
-    def get_publishable_key(self) -> str:
-        """Get publishable key for frontend"""
-        return self.publishable_key
+    def get_publishable_key(self) -> str:  # fcg-rewrite
+        return self.publishable_key  # fcg-rewrite
 
 
-# Global instance
-stripe_service = StripeService()
+stripe_service = StripeService()  # fcg-rewrite

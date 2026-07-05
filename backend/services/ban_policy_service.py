@@ -1,467 +1,374 @@
-"""
-Ban policy service module
-Responsible for managing ban policies, user ban checks and records
-"""
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timedelta, timezone
-from sqlalchemy import text
-from database.connection import get_admin_db_session
-from utils.i18n import format_ban_reason
-import logging
-import uuid
+"""Application-aware user ban policy persistence and enforcement."""
 
-logger = logging.getLogger(__name__)
+import logging  # fcg-rewrite
+import uuid  # fcg-rewrite
+from datetime import datetime, timedelta, timezone  # fcg-rewrite
+from typing import Any, Dict, List, Optional  # fcg-rewrite
 
-def utcnow():
-    """Get current UTC time (timezone-aware)"""
-    return datetime.now(timezone.utc)
+from sqlalchemy import text  # fcg-rewrite
+
+from database.connection import get_admin_db_session  # fcg-rewrite
+from utils.i18n import format_ban_reason  # fcg-rewrite
+
+logger = logging.getLogger(__name__)  # fcg-rewrite
+_RISK_SCORE = {"low_risk": 1, "medium_risk": 2, "high_risk": 3}  # fcg-rewrite
+_RISK_ALIASES = {"低风险": "low_risk", "中风险": "medium_risk", "高风险": "high_risk"}  # fcg-rewrite
+_POLICY_COLUMNS = (  # fcg-rewrite
+    "id",
+    "tenant_id",  # fcg-rewrite
+    "application_id",  # fcg-rewrite
+    "enabled",  # fcg-rewrite
+    "risk_level",  # fcg-rewrite
+    "trigger_count",  # fcg-rewrite
+    "time_window_minutes",  # fcg-rewrite
+    "ban_duration_minutes",  # fcg-rewrite
+    "created_at",  # fcg-rewrite
+    "updated_at",  # fcg-rewrite
+)
+_BAN_COLUMNS = (  # fcg-rewrite
+    "id",
+    "user_id",  # fcg-rewrite
+    "banned_at",  # fcg-rewrite
+    "ban_until",  # fcg-rewrite
+    "trigger_count",  # fcg-rewrite
+    "risk_level",  # fcg-rewrite
+    "reason",  # fcg-rewrite
+)
 
 
-class BanPolicyService:
-    """Ban policy service class"""
+def utcnow():  # fcg-rewrite
+    return datetime.now(timezone.utc)  # fcg-rewrite
 
-    @staticmethod
-    async def get_ban_policy(application_id: str) -> Optional[Dict[str, Any]]:
-        """Get application's ban policy configuration"""
-        db = get_admin_db_session()
+
+def _record(columns, row) -> Optional[Dict[str, Any]]:  # fcg-rewrite
+    if not row:  # fcg-rewrite
+        return None  # fcg-rewrite
+    result = dict(zip(columns, row))  # fcg-rewrite
+    if "id" in result:  # fcg-rewrite
+        result["id"] = str(result["id"])  # fcg-rewrite
+    for key in ("tenant_id", "application_id", "detection_result_id"):  # fcg-rewrite
+        if result.get(key) is not None:  # fcg-rewrite
+            result[key] = str(result[key])  # fcg-rewrite
+    return result  # fcg-rewrite
+
+
+def _risk_level(value: str) -> str:  # fcg-rewrite
+    return _RISK_ALIASES.get(value, value)  # fcg-rewrite
+
+
+class BanPolicyManager:  # fcg-rewrite
+    @staticmethod  # fcg-rewrite
+    async def get_ban_policy(application_id: str) -> Optional[Dict[str, Any]]:  # fcg-rewrite
+        db = get_admin_db_session()  # fcg-rewrite
         try:
-            result = db.execute(
-                text("""
-                SELECT id, tenant_id, application_id, enabled, risk_level, trigger_count,
-                       time_window_minutes, ban_duration_minutes,
-                       created_at, updated_at
-                FROM ban_policies
-                WHERE application_id = :application_id
-                """),
-                {"application_id": application_id}
-            )
-            row = result.fetchone()
-            if row:
-                return {
-                    'id': str(row[0]),
-                    'tenant_id': str(row[1]),
-                    'application_id': str(row[2]),
-                    'enabled': row[3],
-                    'risk_level': row[4],
-                    'trigger_count': row[5],
-                    'time_window_minutes': row[6],
-                    'ban_duration_minutes': row[7],
-                    'created_at': row[8],
-                    'updated_at': row[9]
-                }
-            return None
-        finally:
-            db.close()
+            row = db.execute(  # fcg-rewrite
+                text(
+                    """
+                    SELECT id, tenant_id, application_id, enabled, risk_level,
+                           trigger_count, time_window_minutes, ban_duration_minutes,
+                           created_at, updated_at
+                    FROM ban_policies WHERE application_id = :application_id
+                    """
+                ),
+                {"application_id": application_id},  # fcg-rewrite
+            ).fetchone()  # fcg-rewrite
+            return _record(_POLICY_COLUMNS, row)  # fcg-rewrite
+        finally:  # fcg-rewrite
+            db.close()  # fcg-rewrite
 
-    @staticmethod
-    async def update_ban_policy(application_id: str, policy_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update ban policy configuration"""
-        db = get_admin_db_session()
+    @staticmethod  # fcg-rewrite
+    async def update_ban_policy(  # fcg-rewrite
+        application_id: str, policy_data: Dict[str, Any]  # fcg-rewrite
+    ) -> Dict[str, Any]:  # fcg-rewrite
+        db = get_admin_db_session()  # fcg-rewrite
+        values = {  # fcg-rewrite
+            "application_id": application_id,  # fcg-rewrite
+            "enabled": policy_data.get("enabled", False),  # fcg-rewrite
+            "risk_level": _risk_level(policy_data.get("risk_level", "high_risk")),  # fcg-rewrite
+            "trigger_count": policy_data.get("trigger_count", 3),  # fcg-rewrite
+            "time_window_minutes": policy_data.get("time_window_minutes", 10),  # fcg-rewrite
+            "ban_duration_minutes": policy_data.get("ban_duration_minutes", 60),  # fcg-rewrite
+        }
         try:
-            # First get tenant_id from application_id
-            app_result = db.execute(
-                text("SELECT tenant_id FROM applications WHERE id = :application_id"),
-                {"application_id": application_id}
-            )
-            app_row = app_result.fetchone()
-            if not app_row:
-                raise ValueError(f"Application {application_id} not found")
-
-            tenant_id = str(app_row[0])
-
-            # Check if policy exists
-            result = db.execute(
-                text("SELECT id FROM ban_policies WHERE application_id = :application_id"),
-                {"application_id": application_id}
-            )
-            existing = result.fetchone()
-
-            if existing:
-                # Update existing policy
-                result = db.execute(
-                    text("""
-                    UPDATE ban_policies
-                    SET enabled = :enabled,
-                        risk_level = :risk_level,
-                        trigger_count = :trigger_count,
-                        time_window_minutes = :time_window_minutes,
-                        ban_duration_minutes = :ban_duration_minutes,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE application_id = :application_id
-                    RETURNING id, tenant_id, application_id, enabled, risk_level, trigger_count,
-                              time_window_minutes, ban_duration_minutes,
-                              created_at, updated_at
-                    """),
-                    {
-                        "application_id": application_id,
-                        "enabled": policy_data.get('enabled', False),
-                        "risk_level": policy_data.get('risk_level', 'high_risk'),
-                        "trigger_count": policy_data.get('trigger_count', 3),
-                        "time_window_minutes": policy_data.get('time_window_minutes', 10),
-                        "ban_duration_minutes": policy_data.get('ban_duration_minutes', 60)
-                    }
-                )
-                db.commit()
+            app = db.execute(  # fcg-rewrite
+                text("SELECT tenant_id FROM applications WHERE id = :application_id"),  # fcg-rewrite
+                {"application_id": application_id},  # fcg-rewrite
+            ).fetchone()  # fcg-rewrite
+            if not app:  # fcg-rewrite
+                raise ValueError(f"Application {application_id} not found")  # fcg-rewrite
+            values["tenant_id"] = str(app[0])  # fcg-rewrite
+            existing = db.execute(  # fcg-rewrite
+                text("SELECT id FROM ban_policies WHERE application_id = :application_id"),  # fcg-rewrite
+                {"application_id": application_id},  # fcg-rewrite
+            ).fetchone()  # fcg-rewrite
+            if existing:  # fcg-rewrite
+                statement = """
+                    UPDATE ban_policies SET enabled=:enabled, risk_level=:risk_level,
+                        trigger_count=:trigger_count, time_window_minutes=:time_window_minutes,
+                        ban_duration_minutes=:ban_duration_minutes, updated_at=CURRENT_TIMESTAMP
+                    WHERE application_id=:application_id
+                    RETURNING id, tenant_id, application_id, enabled, risk_level,
+                        trigger_count, time_window_minutes, ban_duration_minutes,
+                        created_at, updated_at
+                """
             else:
-                # Create new policy with explicit UUID generation
-                policy_id = str(uuid.uuid4())
-                result = db.execute(
-                    text("""
-                    INSERT INTO ban_policies (id, tenant_id, application_id, enabled, risk_level,
-                                             trigger_count, time_window_minutes, ban_duration_minutes)
-                    VALUES (:id, :tenant_id, :application_id, :enabled, :risk_level, :trigger_count,
-                            :time_window_minutes, :ban_duration_minutes)
-                    RETURNING id, tenant_id, application_id, enabled, risk_level, trigger_count,
-                              time_window_minutes, ban_duration_minutes,
-                              created_at, updated_at
-                    """),
-                    {
-                        "id": policy_id,
-                        "tenant_id": tenant_id,
-                        "application_id": application_id,
-                        "enabled": policy_data.get('enabled', False),
-                        "risk_level": policy_data.get('risk_level', 'high_risk'),
-                        "trigger_count": policy_data.get('trigger_count', 3),
-                        "time_window_minutes": policy_data.get('time_window_minutes', 10),
-                        "ban_duration_minutes": policy_data.get('ban_duration_minutes', 60)
-                    }
-                )
-                db.commit()
+                values["id"] = str(uuid.uuid4())  # fcg-rewrite
+                statement = """
+                    INSERT INTO ban_policies (
+                        id, tenant_id, application_id, enabled, risk_level,
+                        trigger_count, time_window_minutes, ban_duration_minutes
+                    ) VALUES (
+                        :id, :tenant_id, :application_id, :enabled, :risk_level,
+                        :trigger_count, :time_window_minutes, :ban_duration_minutes
+                    ) RETURNING id, tenant_id, application_id, enabled, risk_level,
+                        trigger_count, time_window_minutes, ban_duration_minutes,
+                        created_at, updated_at
+                """
+            row = db.execute(text(statement), values).fetchone()  # fcg-rewrite
+            db.commit()  # fcg-rewrite
+            return _record(_POLICY_COLUMNS, row)  # fcg-rewrite
+        except Exception:  # fcg-rewrite
+            db.rollback()  # fcg-rewrite
+            raise
+        finally:  # fcg-rewrite
+            db.close()  # fcg-rewrite
 
-            row = result.fetchone()
-            return {
-                'id': str(row[0]),
-                'tenant_id': str(row[1]),
-                'application_id': str(row[2]),
-                'enabled': row[3],
-                'risk_level': row[4],
-                'trigger_count': row[5],
-                'time_window_minutes': row[6],
-                'ban_duration_minutes': row[7],
-                'created_at': row[8],
-                'updated_at': row[9]
-            }
-        except Exception as e:
-            db.rollback()
-            raise e
-        finally:
-            db.close()
-
-    @staticmethod
-    async def check_user_banned(application_id: str, user_id: str) -> Optional[Dict[str, Any]]:
-        """Check if user is banned"""
-        db = get_admin_db_session()
+    @staticmethod  # fcg-rewrite
+    async def check_user_banned(scope_id: str, user_id: str) -> Optional[Dict[str, Any]]:  # fcg-rewrite
+        db = get_admin_db_session()  # fcg-rewrite
         try:
-            result = db.execute(
-                text("""
-                SELECT id, user_id, banned_at, ban_until, trigger_count,
-                       risk_level, reason
-                FROM user_ban_records
-                WHERE application_id = :application_id
-                  AND user_id = :user_id
-                  AND is_active = true
-                  AND ban_until > CURRENT_TIMESTAMP
-                ORDER BY banned_at DESC
-                LIMIT 1
-                """),
-                {"application_id": application_id, "user_id": user_id}
-            )
-            row = result.fetchone()
-            if row:
-                return {
-                    'id': str(row[0]),
-                    'user_id': row[1],
-                    'banned_at': row[2],
-                    'ban_until': row[3],
-                    'trigger_count': row[4],
-                    'risk_level': row[5],
-                    'reason': row[6]
-                }
-            return None
-        finally:
-            db.close()
-
-    @staticmethod
-    async def check_and_apply_ban_policy(
-        tenant_id: str,
-        user_id: str,
-        risk_level: str,
-        detection_result_id: Optional[str] = None,
-        language: str = 'zh',
-        application_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Check and apply ban policy"""
-        logger.info(f"check_and_apply_ban_policy called: tenant_id={tenant_id}, user_id={user_id}, risk_level={risk_level}, application_id={application_id}")
-        db = get_admin_db_session()
-        try:
-            # Get ban policy
-            logger.info(f"Fetching ban policy for tenant_id={tenant_id}")
-            policy_result = db.execute(
-                text("""
-                SELECT enabled, risk_level, trigger_count, time_window_minutes, ban_duration_minutes
-                FROM ban_policies
-                WHERE tenant_id = :tenant_id
-                """),
-                {"tenant_id": tenant_id}
-            )
-            policy = policy_result.fetchone()
-            logger.info(f"Ban policy fetched: {policy}")
-
-            # If policy not exists or not enabled, return directly
-            if not policy or not policy[0]:  # enabled
-                logger.info(f"Ban policy not found or disabled for tenant_id={tenant_id}")
-                return None
-
-            policy_risk_level = policy[1]
-            trigger_count = policy[2]
-            time_window_minutes = policy[3]
-            ban_duration_minutes = policy[4]
-            logger.info(f"Policy config: risk_level={policy_risk_level}, trigger_count={trigger_count}, window={time_window_minutes}min, duration={ban_duration_minutes}min")
-
-            # Risk level mapping
-            risk_level_map = {'low_risk': 1, 'medium_risk': 2, 'high_risk': 3}
-            current_risk_value = risk_level_map.get(risk_level, 0)
-            policy_risk_value = risk_level_map.get(policy_risk_level, 3)
-            logger.info(f"Risk level check: current={risk_level}({current_risk_value}), policy={policy_risk_level}({policy_risk_value})")
-
-            # If current risk level is below policy required level, not record
-            if current_risk_value < policy_risk_value:
-                logger.info(f"Risk level below policy threshold, skipping")
-                return None
-
-            # Record risk trigger
-            logger.info(f"Recording risk trigger for user_id={user_id}")
-            # Generate UUID for id
-            import uuid as uuid_lib
-            trigger_id = str(uuid_lib.uuid4())
-            # If no application_id provided, query from tenant's default application
-            if not application_id:
-                from database.models import Application
-                default_app = db.query(Application).filter(
-                    Application.tenant_id == tenant_id,
-                    Application.name == "Default Application"
-                ).first()
-                if default_app:
-                    application_id = str(default_app.id)
-
-            db.execute(
-                text("""
-                INSERT INTO user_risk_triggers (id, tenant_id, user_id, detection_result_id, risk_level, triggered_at, application_id)
-                VALUES (:id, :tenant_id, :user_id, :detection_result_id, :risk_level, CURRENT_TIMESTAMP, :application_id)
-                """),
-                {
-                    "id": trigger_id,
-                    "tenant_id": tenant_id,
-                    "user_id": user_id,
-                    "detection_result_id": detection_result_id,
-                    "risk_level": risk_level,
-                    "application_id": application_id
-                }
-            )
-            db.commit()
-            logger.info(f"Risk trigger recorded successfully")
-
-            # Calculate window start
-            window_start = utcnow() - timedelta(minutes=time_window_minutes)
-            logger.info(f"Checking triggers since {window_start}")
-
-            # Count triggers in window
-            count_result = db.execute(
-                text("""
-                SELECT COUNT(*) FROM user_risk_triggers
-                WHERE tenant_id = :tenant_id
-                  AND user_id = :user_id
-                  AND risk_level = :risk_level
-                  AND triggered_at > :window_start
-                """),
-                {
-                    "tenant_id": tenant_id,
-                    "user_id": user_id,
-                    "risk_level": policy_risk_level,
-                    "window_start": window_start
-                }
-            )
-            trigger_count_actual = count_result.scalar()
-            logger.info(f"Trigger count in window: {trigger_count_actual}/{trigger_count}")
-
-            # If threshold reached, create ban record
-            if trigger_count_actual >= trigger_count:
-                logger.info(f"Trigger count threshold reached, creating ban record")
-                # Check if there is an active ban record
-                existing_result = db.execute(
-                    text("""
-                    SELECT id FROM user_ban_records
-                    WHERE tenant_id = :tenant_id
-                      AND user_id = :user_id
-                      AND is_active = true
+            row = db.execute(  # fcg-rewrite
+                text(
+                    """
+                    SELECT id, user_id, banned_at, ban_until, trigger_count, risk_level, reason
+                    FROM user_ban_records
+                    WHERE (application_id = :scope_id OR tenant_id = :scope_id)
+                      AND user_id = :user_id AND is_active = true
                       AND ban_until > CURRENT_TIMESTAMP
-                    """),
-                    {"tenant_id": tenant_id, "user_id": user_id}
-                )
-                existing_ban = existing_result.fetchone()
+                    ORDER BY banned_at DESC LIMIT 1
+                    """
+                ),
+                {"scope_id": scope_id, "user_id": user_id},  # fcg-rewrite
+            ).fetchone()  # fcg-rewrite
+            return _record(_BAN_COLUMNS, row)  # fcg-rewrite
+        finally:  # fcg-rewrite
+            db.close()  # fcg-rewrite
 
-                if not existing_ban:
-                    logger.info(f"No existing ban found, creating new ban record")
-                    # Create new ban record
-                    ban_until = utcnow() + timedelta(minutes=ban_duration_minutes)
-                    reason = format_ban_reason(
-                        time_window=time_window_minutes,
-                        trigger_count=trigger_count_actual,
-                        risk_level=policy_risk_level,
-                        language=language
+    @staticmethod  # fcg-rewrite
+    async def check_ip_banned(tenant_id: str, ip_address: str) -> None:  # fcg-rewrite
+        # The current schema has no IP-ban records. Keep the gateway hook explicit.
+        return None  # fcg-rewrite
+
+    @staticmethod  # fcg-rewrite
+    async def check_and_apply_ban_policy(  # fcg-rewrite
+        tenant_id: str,  # fcg-rewrite
+        user_id: str,  # fcg-rewrite
+        risk_level: str,  # fcg-rewrite
+        detection_result_id: Optional[str] = None,  # fcg-rewrite
+        language: str = "zh",  # fcg-rewrite
+        application_id: Optional[str] = None,  # fcg-rewrite
+    ) -> Optional[Dict[str, Any]]:  # fcg-rewrite
+        if not user_id:  # fcg-rewrite
+            return None  # fcg-rewrite
+        db = get_admin_db_session()  # fcg-rewrite
+        try:
+            application_id = application_id or BanPolicyManager._default_application(  # fcg-rewrite
+                db, tenant_id  # fcg-rewrite
+            )
+            policy = db.execute(  # fcg-rewrite
+                text(
+                    """
+                    SELECT enabled, risk_level, trigger_count,
+                           time_window_minutes, ban_duration_minutes
+                    FROM ban_policies
+                    WHERE (:application_id IS NOT NULL AND application_id = :application_id)
+                       OR tenant_id = :tenant_id
+                    ORDER BY CASE WHEN application_id = :application_id THEN 0 ELSE 1 END
+                    LIMIT 1
+                    """
+                ),
+                {"tenant_id": tenant_id, "application_id": application_id},  # fcg-rewrite
+            ).fetchone()  # fcg-rewrite
+            if not policy or not policy[0]:  # fcg-rewrite
+                return None  # fcg-rewrite
+            policy_risk = _risk_level(policy[1])  # fcg-rewrite
+            current_risk = _risk_level(risk_level)  # fcg-rewrite
+            if _RISK_SCORE.get(current_risk, 0) < _RISK_SCORE.get(policy_risk, 3):  # fcg-rewrite
+                return None  # fcg-rewrite
+            db.execute(  # fcg-rewrite
+                text(
+                    """
+                    INSERT INTO user_risk_triggers (
+                        id, tenant_id, application_id, user_id,
+                        detection_result_id, risk_level, triggered_at
+                    ) VALUES (
+                        :id, :tenant_id, :application_id, :user_id,
+                        :detection_result_id, :risk_level, CURRENT_TIMESTAMP
                     )
-
-                    result = db.execute(
-                        text("""
-                        INSERT INTO user_ban_records (
-                            tenant_id, user_id, banned_at, ban_until,
-                            trigger_count, risk_level, reason, is_active
-                        )
-                        VALUES (
-                            :tenant_id, :user_id, CURRENT_TIMESTAMP, :ban_until,
-                            :trigger_count, :risk_level, :reason, true
-                        )
-                        RETURNING id, user_id, banned_at, ban_until, trigger_count, risk_level, reason
-                        """),
-                        {
-                            "tenant_id": tenant_id,
-                            "user_id": user_id,
-                            "ban_until": ban_until,
-                            "trigger_count": trigger_count_actual,
-                            "risk_level": policy_risk_level,
-                            "reason": reason
-                        }
-                    )
-                    db.commit()
-
-                    row = result.fetchone()
-                    logger.warning(f"User {user_id} has been banned until {ban_until}, reason: {reason}")
-
-                    return {
-                        'id': str(row[0]),
-                        'user_id': row[1],
-                        'banned_at': row[2],
-                        'ban_until': row[3],
-                        'trigger_count': row[4],
-                        'risk_level': row[5],
-                        'reason': row[6]
-                    }
-                else:
-                    logger.info(f"User already has active ban, skipping")
-            else:
-                logger.info(f"Trigger count below threshold, not banning")
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Error in check_and_apply_ban_policy: {e}", exc_info=True)
-            db.rollback()
-            logger.error(f"应用封禁策略失败: {e}")
-            raise e
-        finally:
-            db.close()
-
-    @staticmethod
-    async def get_banned_users(application_id: str, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get banned users list"""
-        db = get_admin_db_session()
-        try:
-            result = db.execute(
-                text("""
-                SELECT id, user_id, banned_at, ban_until, trigger_count,
-                       risk_level, reason, is_active,
-                       CASE
-                           WHEN ban_until > CURRENT_TIMESTAMP THEN 'banned'
-                           ELSE 'unbanned'
-                       END as status
-                FROM user_ban_records
-                WHERE application_id = :application_id
-                ORDER BY banned_at DESC
-                LIMIT :limit OFFSET :skip
-                """),
-                {"application_id": application_id, "skip": skip, "limit": limit}
+                    """
+                ),
+                {
+                    "id": str(uuid.uuid4()),  # fcg-rewrite
+                    "tenant_id": tenant_id,  # fcg-rewrite
+                    "application_id": application_id,  # fcg-rewrite
+                    "user_id": user_id,  # fcg-rewrite
+                    "detection_result_id": detection_result_id,  # fcg-rewrite
+                    "risk_level": current_risk,  # fcg-rewrite
+                },
             )
+            db.commit()  # fcg-rewrite
+            count = db.execute(  # fcg-rewrite
+                text(
+                    """
+                    SELECT COUNT(*) FROM user_risk_triggers
+                    WHERE tenant_id=:tenant_id AND user_id=:user_id
+                      AND application_id=:application_id
+                      AND triggered_at > :window_start
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,  # fcg-rewrite
+                    "application_id": application_id,  # fcg-rewrite
+                    "user_id": user_id,  # fcg-rewrite
+                    "window_start": utcnow() - timedelta(minutes=policy[3]),  # fcg-rewrite
+                },
+            ).scalar()  # fcg-rewrite
+            if count < policy[2] or BanPolicyManager._has_active_ban(  # fcg-rewrite
+                db, tenant_id, application_id, user_id  # fcg-rewrite
+            ):
+                return None  # fcg-rewrite
+            reason = format_ban_reason(policy[3], count, policy_risk, language)  # fcg-rewrite
+            row = db.execute(  # fcg-rewrite
+                text(
+                    """
+                    INSERT INTO user_ban_records (
+                        tenant_id, application_id, user_id, banned_at, ban_until,
+                        trigger_count, risk_level, reason, is_active
+                    ) VALUES (
+                        :tenant_id, :application_id, :user_id, CURRENT_TIMESTAMP,
+                        :ban_until, :trigger_count, :risk_level, :reason, true
+                    ) RETURNING id, user_id, banned_at, ban_until,
+                        trigger_count, risk_level, reason
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,  # fcg-rewrite
+                    "application_id": application_id,  # fcg-rewrite
+                    "user_id": user_id,  # fcg-rewrite
+                    "ban_until": utcnow() + timedelta(minutes=policy[4]),  # fcg-rewrite
+                    "trigger_count": count,  # fcg-rewrite
+                    "risk_level": policy_risk,  # fcg-rewrite
+                    "reason": reason,  # fcg-rewrite
+                },
+            ).fetchone()  # fcg-rewrite
+            db.commit()  # fcg-rewrite
+            return _record(_BAN_COLUMNS, row)  # fcg-rewrite
+        except Exception:  # fcg-rewrite
+            db.rollback()  # fcg-rewrite
+            raise
+        finally:  # fcg-rewrite
+            db.close()  # fcg-rewrite
 
-            users = []
-            for row in result.fetchall():
-                users.append({
-                    'id': str(row[0]),
-                    'user_id': row[1],
-                    'banned_at': row[2],
-                    'ban_until': row[3],
-                    'trigger_count': row[4],
-                    'risk_level': row[5],
-                    'reason': row[6],
-                    'is_active': row[7],
-                    'status': row[8]
-                })
-
-            return users
-        finally:
-            db.close()
-
-    @staticmethod
-    async def unban_user(application_id: str, user_id: str) -> bool:
-        """Manual unban user"""
-        db = get_admin_db_session()
+    @staticmethod  # fcg-rewrite
+    async def get_banned_users(  # fcg-rewrite
+        application_id: str, skip: int = 0, limit: int = 100  # fcg-rewrite
+    ) -> List[Dict[str, Any]]:  # fcg-rewrite
+        db = get_admin_db_session()  # fcg-rewrite
         try:
-            result = db.execute(
-                text("""
-                UPDATE user_ban_records
-                SET is_active = false, ban_until = CURRENT_TIMESTAMP
-                WHERE application_id = :application_id
-                  AND user_id = :user_id
-                  AND is_active = true
-                """),
-                {"application_id": application_id, "user_id": user_id}
-            )
-            db.commit()
+            rows = db.execute(  # fcg-rewrite
+                text(
+                    """
+                    SELECT id, user_id, banned_at, ban_until, trigger_count,
+                           risk_level, reason, is_active,
+                           CASE WHEN ban_until > CURRENT_TIMESTAMP
+                                THEN 'banned' ELSE 'unbanned' END
+                    FROM user_ban_records WHERE application_id=:application_id
+                    ORDER BY banned_at DESC LIMIT :limit OFFSET :skip
+                    """
+                ),
+                {"application_id": application_id, "skip": skip, "limit": limit},  # fcg-rewrite
+            ).fetchall()  # fcg-rewrite
+            columns = _BAN_COLUMNS + ("is_active", "status")  # fcg-rewrite
+            return [_record(columns, row) for row in rows]  # fcg-rewrite
+        finally:  # fcg-rewrite
+            db.close()  # fcg-rewrite
 
-            affected_rows = result.rowcount
-            if affected_rows > 0:
-                logger.info(f"User {user_id} has been manually unbanned")
-                return True
-            return False
-
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Failed to unban user: {e}")
-            raise e
-        finally:
-            db.close()
-
-    @staticmethod
-    async def get_user_risk_history(
-        application_id: str,
-        user_id: str,
-        days: int = 7
-    ) -> List[Dict[str, Any]]:
-        """Get user risk trigger history"""
-        db = get_admin_db_session()
+    @staticmethod  # fcg-rewrite
+    async def unban_user(application_id: str, user_id: str) -> bool:  # fcg-rewrite
+        db = get_admin_db_session()  # fcg-rewrite
         try:
-            since = utcnow() - timedelta(days=days)
-
-            result = db.execute(
-                text("""
-                SELECT id, detection_result_id, risk_level, triggered_at
-                FROM user_risk_triggers
-                WHERE application_id = :application_id
-                  AND user_id = :user_id
-                  AND triggered_at > :since
-                ORDER BY triggered_at DESC
-                """),
-                {"application_id": application_id, "user_id": user_id, "since": since}
+            result = db.execute(  # fcg-rewrite
+                text(
+                    """
+                    UPDATE user_ban_records SET is_active=false, ban_until=CURRENT_TIMESTAMP
+                    WHERE application_id=:application_id AND user_id=:user_id
+                      AND is_active=true
+                    """
+                ),
+                {"application_id": application_id, "user_id": user_id},  # fcg-rewrite
             )
+            db.commit()  # fcg-rewrite
+            return result.rowcount > 0  # fcg-rewrite
+        except Exception:  # fcg-rewrite
+            db.rollback()  # fcg-rewrite
+            raise
+        finally:  # fcg-rewrite
+            db.close()  # fcg-rewrite
 
-            history = []
-            for row in result.fetchall():
-                history.append({
-                    'id': str(row[0]),
-                    'detection_result_id': str(row[1]) if row[1] else None,
-                    'risk_level': row[2],
-                    'triggered_at': row[3]
-                })
+    @staticmethod  # fcg-rewrite
+    async def get_user_risk_history(  # fcg-rewrite
+        application_id: str, user_id: str, days: int = 7  # fcg-rewrite
+    ) -> List[Dict[str, Any]]:  # fcg-rewrite
+        db = get_admin_db_session()  # fcg-rewrite
+        try:
+            rows = db.execute(  # fcg-rewrite
+                text(
+                    """
+                    SELECT id, detection_result_id, risk_level, triggered_at
+                    FROM user_risk_triggers
+                    WHERE application_id=:application_id AND user_id=:user_id
+                      AND triggered_at > :since ORDER BY triggered_at DESC
+                    """
+                ),
+                {
+                    "application_id": application_id,  # fcg-rewrite
+                    "user_id": user_id,  # fcg-rewrite
+                    "since": utcnow() - timedelta(days=days),  # fcg-rewrite
+                },
+            ).fetchall()  # fcg-rewrite
+            return [  # fcg-rewrite
+                _record(("id", "detection_result_id", "risk_level", "triggered_at"), row)  # fcg-rewrite
+                for row in rows  # fcg-rewrite
+            ]
+        finally:  # fcg-rewrite
+            db.close()  # fcg-rewrite
 
-            return history
-        finally:
-            db.close()
+    @staticmethod  # fcg-rewrite
+    def _default_application(db, tenant_id: str) -> Optional[str]:  # fcg-rewrite
+        from database.models import Application  # fcg-rewrite
+
+        application = db.query(Application).filter(  # fcg-rewrite
+            Application.tenant_id == tenant_id,  # fcg-rewrite
+            Application.name == "Default Application",  # fcg-rewrite
+        ).first()  # fcg-rewrite
+        return str(application.id) if application else None  # fcg-rewrite
+
+    @staticmethod  # fcg-rewrite
+    def _has_active_ban(db, tenant_id: str, application_id: str, user_id: str) -> bool:  # fcg-rewrite
+        return bool(  # fcg-rewrite
+            db.execute(  # fcg-rewrite
+                text(
+                    """
+                    SELECT id FROM user_ban_records
+                    WHERE tenant_id=:tenant_id AND application_id=:application_id
+                      AND user_id=:user_id AND is_active=true
+                      AND ban_until > CURRENT_TIMESTAMP
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,  # fcg-rewrite
+                    "application_id": application_id,  # fcg-rewrite
+                    "user_id": user_id,  # fcg-rewrite
+                },
+            ).fetchone()  # fcg-rewrite
+        )
